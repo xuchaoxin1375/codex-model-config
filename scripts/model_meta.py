@@ -91,7 +91,7 @@ def load_skill_defaults(template: Path | None = None) -> dict[str, Any]:
 def parse_csv_tokens(raw: str, *, allowed: tuple[str, ...], flag: str) -> list[str]:
     values: list[str] = []
     seen: set[str] = set()
-    for part in raw.split(","):
+    for part in raw.replace(",", " ").split():
         token = part.strip().lower()
         if not token:
             continue

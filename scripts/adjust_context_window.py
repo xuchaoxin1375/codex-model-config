@@ -96,23 +96,74 @@ def find_profiles_with_model(codex_home: Path, slug: str) -> list[Path]:
     return hits
 
 
-def dump_bundled_catalog(catalog: Path) -> dict[str, Any]:
-    result = subprocess.run(
-        ["codex", "debug", "models", "--bundled"],
-        check=False,
-        capture_output=True,
-        text=True,
+def cleaned_path() -> str:
+    return os.pathsep.join(
+        part.strip() for part in os.environ.get("PATH", "").split(os.pathsep) if part.strip()
     )
+
+
+def resolve_codex() -> str:
+    path = cleaned_path()
+    names = ("codex.exe", "codex.cmd", "codex") if os.name == "nt" else ("codex",)
+    for name in names:
+        found = shutil.which(name, path=path)
+        if found:
+            return found
+    raise RuntimeError(
+        "`codex` executable not found on PATH. "
+        "In PowerShell, `Get-Command codex` may be a .ps1 shim that Python cannot launch. "
+        "Install Codex CLI so `codex.cmd` or `codex.exe` is on PATH."
+    )
+
+
+def decode_utf8_output(raw: bytes | str | None, *, errors: str = "strict") -> str:
+    """Decode Codex CLI output as UTF-8.
+
+    Windows `text=True` uses the locale encoding (often GBK), which cannot
+    decode bundled models.json and leaves stdout as None.
+    """
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    return raw.decode("utf-8", errors=errors)
+
+
+def dump_bundled_catalog(catalog: Path) -> dict[str, Any]:
+    env = os.environ.copy()
+    env["PATH"] = cleaned_path()
+    try:
+        result = subprocess.run(
+            [resolve_codex(), "debug", "models", "--bundled"],
+            check=False,
+            capture_output=True,
+            env=env,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"failed to run `codex debug models --bundled`: {exc}") from exc
+    try:
+        stdout = decode_utf8_output(result.stdout)
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(
+            "`codex debug models --bundled` stdout is not valid UTF-8; "
+            "Windows text=True/GBK decoding is the usual cause"
+        ) from exc
+    stderr = decode_utf8_output(result.stderr, errors="replace")
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
+        detail = (stderr or stdout).strip()
         raise RuntimeError(f"`codex debug models --bundled` failed: {detail or result.returncode}")
-    data = json.loads(result.stdout)
+    if not stdout.strip():
+        raise RuntimeError("`codex debug models --bundled` produced empty stdout")
+    data = json.loads(stdout)
     if isinstance(data, list):
         data = {"models": data}
     if not isinstance(data, dict) or not isinstance(data.get("models"), list):
         raise RuntimeError("bundled catalog did not contain a models array")
-    catalog.parent.mkdir(parents=True, exist_ok=True)
-    catalog.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        catalog.parent.mkdir(parents=True, exist_ok=True)
+        catalog.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"cannot write catalog {catalog}: {exc}") from exc
     return data
 
 

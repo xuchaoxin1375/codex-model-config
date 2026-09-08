@@ -71,7 +71,7 @@ profile / slug / 安装器类错误见 [references/常见陷阱.md](references/�
 
 ## 新建 profile
 
-Windows 用 `python`（不要 `python3`），续行用反引号；脚本会按当前 OS 打印后续命令。完整 PowerShell 流程见 [README.md](README.md)。
+Windows 用 `python`（不要 `python3`），续行用反引号；脚本会按当前 OS 打印后续命令。PowerShell 里 CSV 必须加引号：`--reasoning-levels "low,medium,high,xhigh"`。`--bootstrap-bundled` 依赖 PATH 上的 `codex.cmd`/`codex.exe`，不是 `codex.ps1`。完整 PowerShell 流程见 [README.md](README.md)。
 
 未指定 `--provider` 时，用模型系列作为 id 和文件名：
 

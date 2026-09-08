@@ -67,8 +67,10 @@ Get-Content -LiteralPath $envFile | ForEach-Object {
 导出 bundled 目录（避免 `>`）：
 
 ```powershell
-python -c "import subprocess, pathlib; p=subprocess.run(['codex','debug','models','--bundled'], check=True, capture_output=True, text=True); pathlib.Path.home().joinpath('.codex','models.json').write_text(p.stdout, encoding='utf-8')"
+python scripts\adjust_context_window.py --model grok-4.6 --profile yjwd-grok --bootstrap-bundled --from-cache --yes
 ```
+
+不要用 `subprocess.run(..., text=True)` 接 `codex debug models --bundled`：中文 Windows 会按 GBK 解码 UTF-8 JSON，随后 `stdout` 变成 `None`。也不要用 `>` 重定向。
 
 | 事项 | Unix shell | PowerShell |
 |---|---|---|
@@ -79,6 +81,9 @@ python -c "import subprocess, pathlib; p=subprocess.run(['codex','debug','models
 | 临时目录 | `/tmp` | `$env:TEMP` |
 | 环境变量 | `export NAME=value` | `$env:NAME = "value"` |
 | 加载 `models.env` | `set -a && . ~/.config/models.env && set +a` | 见上方 `Get-Content` |
+| CSV 参数 | `--reasoning-levels low,high,xhigh` | 必须加引号：`--reasoning-levels "low,high,xhigh"`（未加引号时逗号会变成数组） |
+| 调用 `codex` | PATH 上的 `codex` 可执行文件 | PowerShell 的 `codex` 常是 `.ps1`，Python `subprocess` 找不到。脚本会改找 `codex.cmd` / `codex.exe` |
+| bundled JSON | `codex debug models --bundled > file` 可用 | 不要 `text=True`，不要 `>`（UTF-16）。用 `--bootstrap-bundled` |
 | 供应商安装器 | 不要 `curl \| bash` | 不要 `irm \| iex` |
 
 ## 安装
