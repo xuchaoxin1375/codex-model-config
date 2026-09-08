@@ -18,6 +18,7 @@ Python 脚本跨平台。跑完后会按当前 OS 打印后续命令：Unix shel
 | `references/catalog-source.md` | `models.json` 从哪来（本机 bundled，不是下载 OpenAI） |
 | `references/context-window-guide.md` | 窗口如何被目录钳制 |
 | `references/常见陷阱.md` | 改错文件 / slug / 安装器 |
+| `references/codex-sandbox-permissions.md` | Codex 沙箱 / 审批：CLI 与 config.toml |
 | `references/400k-context-setup配置指南.md` | DeepSeek 400K 已验证示例，不是唯一目标 |
 
 ## Shell 差异

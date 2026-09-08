@@ -67,6 +67,8 @@ catalog 文件从哪来（bundled、缓存、为何不是 OpenAI 下载）见 [r
 
 profile / slug / 安装器类错误见 [references/常见陷阱.md](references/常见陷阱.md)。
 
+git / `.git` 写不进、命令要外网、或 `index.lock` Permission denied：见 [references/codex-sandbox-permissions.md](references/codex-sandbox-permissions.md)。那是沙箱和审批，不是模型 profile。
+
 [references/400k-context-setup配置指南.md](references/400k-context-setup配置指南.md) 只是 DeepSeek 400K 的一份已验证示例，不是唯一目标。
 
 ## 新建 profile
