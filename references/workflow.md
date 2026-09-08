@@ -51,7 +51,7 @@ coding agent 配指定模型时，**先联网查官方文档，再写配置**。
 
 - `context_window = 258400`（主流模型至少这个量级）
 - `reasoning_levels = ["low", "medium", "high", "xhigh", "max"]`（部分档位上游可不可用）
-- `reasoning_effort = "low"`
+- `reasoning_effort = "medium"`
 
 简便写法：`--defaults`（或不传窗口/档位参数，脚本自己读模板）。
 
@@ -173,7 +173,7 @@ Get-Content -LiteralPath $envFile | ForEach-Object {
 model = "<slug>"
 model_provider = "<id>"
 preferred_auth_method = "apikey"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 model_catalog_json = "/absolute/path/to/models.json"
 
 [model_providers.<id>]

@@ -6,8 +6,9 @@ Edits:
   - the matching entry in models.json
 
 If the catalog or model entry is missing, pass --bootstrap-bundled and/or
---from-cache/--clone-from instead of hand-editing JSON. Backups are written
-beside the edited files.
+--from-cache/--clone-from instead of hand-editing JSON. If --profile points at
+a missing TOML, the skill template is used to create it (pass --base-url).
+Backups are written beside the edited files.
 """
 
 from __future__ import annotations
@@ -27,15 +28,17 @@ from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shell_hints import print_next_debug_models
+from shell_hints import print_next_debug_models, python_cmd
 from model_meta import (
     REASONING_EFFORTS,
+    WIRE_APIS,
     build_reasoning_levels,
     compact_limit_for,
     load_skill_defaults,
     parse_modalities,
     parse_reasoning_levels,
 )
+from init_profile import default_template, render_template, validate_provider
 
 
 def toml_value(value: Any) -> str:
@@ -194,6 +197,50 @@ def find_source_entry(
     return None
 
 
+
+def missing_config_text(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    config: Path,
+    codex_home: Path,
+    reasoning_effort: str,
+) -> tuple[str, bool]:
+    hits = find_profiles_with_model(codex_home, args.model)
+    hit_names = ", ".join(path.name.removesuffix(".config.toml") for path in hits)
+    init_cmd = (
+        f"{python_cmd()} scripts/init_profile.py --model {args.model} "
+        f"--provider {args.profile or '<id>'} --base-url <url> --yes"
+    )
+    if not args.profile:
+        extra = f" Matching profile(s): --profile {hit_names}." if hits else ""
+        parser.error(
+            f"config file not found: {config}.{extra} "
+            f"Pass --profile <id> to create it from the skill template, or run: {init_cmd}"
+        )
+
+    try:
+        validate_provider(args.profile)
+        env_key = f"{args.profile.replace('-', '_').upper()}_API_KEY"
+        rendered = render_template(
+            default_template().read_text(encoding="utf-8"),
+            provider=args.profile,
+            model=args.model,
+            base_url=args.base_url or "",
+            env_key=env_key,
+            wire_api=args.wire_api,
+            reasoning_effort=reasoning_effort,
+        )
+        tomllib.loads(rendered)
+    except FileNotFoundError:
+        parser.error(f"config file not found: {config}; template missing: {default_template()}")
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
+        parser.error(
+            f"config file not found: {config}; could not create from template: {exc}. "
+            f"Create it first: {init_cmd}"
+        )
+    return rendered, True
+
+
 def print_proposal(
     slug: str,
     context: int,
@@ -209,6 +256,8 @@ def print_proposal(
     reasoning_levels: list[str] | None,
     input_modalities: list[str] | None,
     using_defaults: bool,
+    created_profile: bool = False,
+    base_url: str = "",
 ) -> None:
     print("Proposed change")
     print(f"  model:                {slug}")
@@ -232,6 +281,10 @@ def print_proposal(
         print("  catalog source:       codex debug models --bundled")
     if cloned_from:
         print(f"  cloned from:          {cloned_from}")
+    if created_profile:
+        print("  profile source:       skill template (file was missing)")
+        if not base_url:
+            print("  warning:              base_url is empty; fill it before starting Codex")
 
 
 def main() -> int:
@@ -257,8 +310,21 @@ def main() -> int:
         help="compaction limit as %% of context (default: skill template)",
     )
     parser.add_argument("--codex-home", default=os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
-    parser.add_argument("--profile", help="edit <codex-home>/<profile>.config.toml instead of config.toml")
+    parser.add_argument(
+        "--profile",
+        help="edit <codex-home>/<profile>.config.toml; create it from the skill template if missing",
+    )
     parser.add_argument("--config", help="config.toml path (default: <codex-home>/config.toml)")
+    parser.add_argument(
+        "--base-url",
+        help="provider base_url; used when creating a missing --profile from the template",
+    )
+    parser.add_argument(
+        "--wire-api",
+        choices=WIRE_APIS,
+        default="responses",
+        help="provider wire_api when creating a missing --profile; default: responses",
+    )
     parser.add_argument("--catalog", help="models.json path (default: <codex-home>/models.json)")
     parser.add_argument(
         "--bootstrap-bundled",
@@ -347,10 +413,11 @@ def main() -> int:
         or args.effective_percent is None
         or args.reasoning_effort is None
     )
+    created_profile = False
     if not config.exists():
-        parser.error(f"config file not found: {config}")
-
-    config_text = config.read_text(encoding="utf-8")
+        config_text, created_profile = missing_config_text(parser, args, config, codex_home, reasoning_effort)
+    else:
+        config_text = config.read_text(encoding="utf-8")
     try:
         current_model = top_level_model(config_text)
     except tomllib.TOMLDecodeError as exc:
@@ -440,6 +507,8 @@ def main() -> int:
         reasoning_levels=reasoning_levels,
         input_modalities=input_modalities,
         using_defaults=using_defaults,
+        created_profile=created_profile,
+        base_url=args.base_url or "",
     )
 
     if args.dry_run:
@@ -476,14 +545,18 @@ def main() -> int:
         parser.error(f"generated config is invalid: {exc}")
 
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(config, config.with_name(f"{config.name}.bak.{stamp}"))
+    if config.exists():
+        shutil.copy2(config, config.with_name(f"{config.name}.bak.{stamp}"))
     if catalog.exists():
         shutil.copy2(catalog, catalog.with_name(f"{catalog.name}.bak.{stamp}"))
+    config.parent.mkdir(parents=True, exist_ok=True)
     catalog.write_text(json.dumps(root, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     config.write_text(config_text, encoding="utf-8")
 
-    print(f"Updated {config}")
+    print(f"{'Created' if created_profile else 'Updated'} {config}")
     print(f"Updated {catalog}")
+    if created_profile and not (args.base_url or "").strip():
+        print("Fill base_url in the new profile before starting Codex.")
     print("Next:")
     print_next_debug_models(catalog)
     if args.profile:

@@ -30,7 +30,7 @@ description: >
 - 不要运行供应商的 `curl | bash` / `irm | iex` 安装器，除非用户明确要求。那些脚本常改默认 `config.toml`，并可能用单供应商目录盖掉内置模型。
 - 保留的提供方 id 不要占用：`openai`、`ollama`、`lmstudio`。`model_providers` 不能写在项目级 `.codex/config.toml`。
 - 本地窗口数值不会改变上游真实上限。未知 slug 会回退到大约 `272000 * 95% ≈ 258400`。
-- 配置指定模型时，先查供应商**官方**文档再写窗口和思考档位。查不到时用模板里 `skill.codex-model-config` 默认值（258400 上下文 + `low,medium,high,xhigh,max`，部分档位上游可不可用）。不要编造比默认更大的窗口。本机 `models_cache.json` 只作目录克隆骨架。
+- 配置指定模型时，先查供应商**官方**文档再写窗口和思考档位。查不到时用模板里 `skill.codex-model-config` 默认值（258400 上下文 + `low,medium,high,xhigh,max`，默认档 `medium`，部分档位上游可不可用）。不要编造比默认更大的窗口。本机 `models_cache.json` 只作目录克隆骨架。
 - `codex --profile` 对 `doctor` 无效。校验目录用 `-c model_catalog_json=... debug models`，把 JSON 重定向到文件，不要管道进 Python heredoc。Windows PowerShell 不要用 `>`（会写成 UTF-16）。
 - 配置按进程启动时加载。改完后重载客户端并开新对话。会话按认证方式分组，切换提供方后另一组历史会被隐藏，不是删除。
 
@@ -42,7 +42,7 @@ description: >
 
 来源优先级：用户已给的值 → 供应商官方 API / 模型文档 → 本机 `models_cache.json`（只克隆骨架，不证明窗口）。官方文档与缓存冲突时以官方为准；官方与用户冲突时停下来问。
 
-查不到窗口或档位：用模板 `skill.codex-model-config` 默认值（`context_window=258400`，五档思考，`reasoning_effort=low`），并告诉用户部分档位可能被上游忽略。官方明确更大窗口或更少档位时用 CLI 覆盖。`base_url` / slug 仍不能猜；缺这些才请用户核对。
+查不到窗口或档位：用模板 `skill.codex-model-config` 默认值（`context_window=258400`，五档思考，`reasoning_effort=medium`），并告诉用户部分档位可能被上游忽略。官方明确更大窗口或更少档位时用 CLI 覆盖。`base_url` / slug 仍不能猜；缺这些才请用户核对。
 
 写 `models.json` 仍只用本机 bundled / 现有文件 / cache，不要为写 catalog 去下载 OpenAI 或探测代理。细节见 [references/workflow.md](references/workflow.md)。
 
@@ -50,7 +50,7 @@ description: >
 
 1. 收集用户已有的：模型 slug、`base_url`、环境变量名；窗口和档位若已给就用。未指定提供方 id 时，用模型系列名（`gpt` / `grok` / `deepseek` 等）作为 `provider-id`。若用户给了 API Key，写入 `~/.config/models.env`，不要写进 TOML。
 2. 按「查询权威元数据」补全 `wire_api`、窗口、思考档位。不要猜 URL。窗口/档位无官方值时用 `--defaults`（或省略这些参数，脚本读取模板默认值）。未要求时不要改正在使用的默认模型。
-3. 没有现成 profile 时，从 [references/template.config.toml](references/template.config.toml) 新建 `~/.codex/<provider-id>.config.toml`，不要改默认 `config.toml`。已有文件则备份后再改。
+3. 没有现成 profile 时，优先跑 `scripts/init_profile.py`。`adjust_context_window.py --profile <id>` 若发现 TOML 不存在，也会从模板新建（建议同时传 `--base-url`）。不要改默认 `config.toml`。已有文件则备份后再改。
 4. 写目录：完整 bundled + 自定义条目。简便写法：`adjust_context_window.py --defaults --bootstrap-bundled --from-cache --profile <id> --model <slug> --yes`。官方值用 `--context-window` / `--reasoning-levels` 覆盖。
 5. 只改必要的顶层键和对应的 `[model_providers.<id>]`。
 6. 写入前用 TOML/JSON 语法校验；失败则中止。
@@ -78,11 +78,11 @@ Windows 用 `python`（不要 `python3`），续行用反引号；脚本会按�
 未指定 `--provider` 时，用模型系列作为 id 和文件名：
 
 ```bash
-python3 scripts/init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --wire-api responses --reasoning-effort high --yes
+python3 scripts/init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --wire-api responses --yes
 ```
 
 ```powershell
-python scripts\init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --wire-api responses --reasoning-effort high --yes
+python scripts\init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --wire-api responses --yes
 ```
 
 显式指定提供方（例如已有中转站名）：
@@ -124,7 +124,7 @@ python3 scripts/adjust_context_window.py --model grok-4.6 --profile yjwd-grok --
 ```
 
 ```powershell
-python scripts\adjust_context_window.py --model grok-4.6 --profile yjwd-grok --bootstrap-bundled --from-cache --defaults --yes
+python scripts/adjust_context_window.py --model grok-4.6 --profile yjwd-grok --bootstrap-bundled --from-cache --defaults --yes
 ```
 
 官方值覆盖默认：

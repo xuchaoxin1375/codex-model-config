@@ -10,6 +10,10 @@ def on_windows() -> bool:
     return os.name == "nt"
 
 
+def python_cmd() -> str:
+    return "python" if on_windows() else "python3"
+
+
 def catalog_posix(catalog: Path) -> str:
     catalog = Path(catalog).expanduser()
     try:

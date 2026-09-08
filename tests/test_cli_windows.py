@@ -289,6 +289,95 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             self.assertIn("gpt-5.5", slugs)
             self.assertIn("grok-4.6", slugs)
 
+    def test_missing_profile_creates_from_template(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "models_cache.json").write_text(
+                json.dumps({"models": [{"slug": "x-ai/grok-4.6", "context_window": 500000}]}),
+                encoding="utf-8",
+            )
+
+            def fake_dump(catalog: Path):
+                data = {"models": [{"slug": "gpt-5.5", "display_name": "model"}]}
+                catalog.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                return data
+
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--bootstrap-bundled",
+                "--from-cache",
+                "--context-window",
+                "300000",
+                "--reasoning-levels",
+                "low,medium,high,xhigh",
+                "--base-url",
+                "https://example.invalid/v1",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                with mock.patch.object(mod, "dump_bundled_catalog", fake_dump):
+                    rc = mod.main()
+            self.assertEqual(rc, 0)
+            profile = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
+            self.assertIn('model = "grok-4.6"', profile)
+            self.assertIn('model_provider = "yjwd-grok"', profile)
+            self.assertIn('base_url = "https://example.invalid/v1"', profile)
+            self.assertIn("model_context_window = 300000", profile)
+            catalog = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            self.assertIn("grok-4.6", [item["slug"] for item in catalog["models"]])
+
+    def test_missing_default_config_explains_profile(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                with self.assertRaises(SystemExit) as ctx:
+                    mod.main()
+            self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_missing_profile_dry_run_does_not_write(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "models.json").write_text(
+                json.dumps({"models": [{"slug": "grok-4.6", "context_window": 272000}]}),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--dry-run",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            self.assertFalse((home / "yjwd-grok.config.toml").exists())
 
 
 class LiveCodexDumpTests(unittest.TestCase):

@@ -18,7 +18,7 @@ FALLBACK_SKILL_DEFAULTS: dict[str, Any] = {
     "context_window": 258400,
     "compact_percent": 90,
     "effective_percent": 100,
-    "reasoning_effort": "low",
+    "reasoning_effort": "medium",
     "reasoning_levels": list(REASONING_EFFORTS),
     "input_modalities": ["text", "image"],
 }

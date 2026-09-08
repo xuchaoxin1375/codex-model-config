@@ -118,7 +118,7 @@ Copy-Item -Recurse -Force . "$env:USERPROFILE\.codex\skills\codex-model-config"
 
 coding agent 配指定模型时：先查供应商官方文档，再调用脚本。不要用博客或 `models_cache.json` 里的数字冒充上游上限。
 
-要确认：精确 slug、`base_url`、`wire_api`。窗口和思考档位查到官方值就覆盖；查不到则用模板里 `skill.codex-model-config` 默认值（258400 上下文 + `low,medium,high,xhigh,max`，部分档位可不可用）。`base_url` / slug 仍不能猜。
+要确认：精确 slug、`base_url`、`wire_api`。窗口和思考档位查到官方值就覆盖；查不到则用模板里 `skill.codex-model-config` 默认值（258400 上下文 + `low,medium,high,xhigh,max`，默认档 `medium`，部分档位可不可用）。`base_url` / slug 仍不能猜。
 
 简便配置（读模板默认值）：
 
