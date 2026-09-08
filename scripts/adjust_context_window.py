@@ -8,6 +8,8 @@ Edits:
 If the catalog or model entry is missing, pass --bootstrap-bundled and/or
 --from-cache/--clone-from instead of hand-editing JSON. If --profile points at
 a missing TOML, the skill template is used to create it (pass --base-url).
+If --from-cache is set but models_cache.json is missing, warn and synthesize
+a catalog entry from the CLI/skill defaults instead of aborting.
 Backups are written beside the edited files.
 """
 
@@ -197,6 +199,24 @@ def find_source_entry(
     return None
 
 
+def synthesize_model_entry(
+    slug: str,
+    *,
+    context_window: int,
+    reasoning_levels: list[str],
+    default_reasoning: str,
+    input_modalities: list[str],
+) -> dict[str, Any]:
+    return {
+        "slug": slug,
+        "display_name": slug,
+        "context_window": context_window,
+        "max_context_window": context_window,
+        "supported_reasoning_levels": build_reasoning_levels(reasoning_levels, {}),
+        "default_reasoning_level": default_reasoning,
+        "input_modalities": list(input_modalities),
+    }
+
 
 def missing_config_text(
     parser: argparse.ArgumentParser,
@@ -334,7 +354,7 @@ def main() -> int:
     parser.add_argument(
         "--from-cache",
         action="store_true",
-        help="if the slug is missing, clone it from models_cache.json (including vendor-prefixed slugs)",
+        help="if the slug is missing, clone from models_cache.json when present; otherwise synthesize an entry",
     )
     parser.add_argument("--clone-from", help="clone this catalog/cache slug when --model is missing")
     parser.add_argument(
@@ -470,17 +490,50 @@ def main() -> int:
         source = None
         if args.clone_from:
             source = find_source_entry(models, args.model, args.clone_from)
-        if source is None and args.from_cache:
-            if not cache_path.exists():
-                parser.error(f"--from-cache set but {cache_path} does not exist")
-            try:
-                source = find_source_entry(load_cache_models(cache_path), args.model, args.clone_from)
-            except (OSError, ValueError, json.JSONDecodeError) as exc:
-                parser.error(str(exc))
         if source is None:
-            parser.error(
-                f"model '{args.model}' is not present in {catalog}; "
-                "pass --from-cache and/or --clone-from <slug>, or add the entry first"
+            source = find_source_entry(models, args.model, None)
+        if source is None and args.from_cache:
+            if cache_path.exists():
+                try:
+                    source = find_source_entry(
+                        load_cache_models(cache_path), args.model, args.clone_from
+                    )
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    parser.error(str(exc))
+                if source is None:
+                    print(
+                        f"warning: --from-cache: {args.model!r} not in {cache_path}",
+                        file=sys.stderr,
+                    )
+            else:
+                print(
+                    f"warning: --from-cache set but {cache_path} does not exist; "
+                    "synthesizing a catalog entry from CLI/skill defaults",
+                    file=sys.stderr,
+                )
+        if source is None:
+            can_synthesize = (
+                args.from_cache
+                or args.clone_from
+                or args.defaults
+                or args.context_window is not None
+                or args.reasoning_levels is not None
+            )
+            if not can_synthesize:
+                parser.error(
+                    f"model '{args.model}' is not present in {catalog}; "
+                    "pass --from-cache and/or --clone-from <slug>, or add the entry first"
+                )
+            modalities = input_modalities or list(skill_defaults["input_modalities"])
+            source = (
+                synthesize_model_entry(
+                    args.model,
+                    context_window=context_window,
+                    reasoning_levels=reasoning_levels,
+                    default_reasoning=default_reasoning,
+                    input_modalities=modalities,
+                ),
+                "(synthesized)",
             )
         source_entry, cloned_from = source
         models.append(copy.deepcopy(source_entry))

@@ -10,6 +10,40 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+
+def write_fake_codex(bindir: Path, models: list) -> None:
+    bindir.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({"models": models}, ensure_ascii=False)
+    helper = bindir / "_codex_debug.py"
+    helper.write_text(
+        "import sys\n"
+        f"data = {payload!r}\n"
+        "args = sys.argv[1:]\n"
+        "if args[:2] == ['debug', 'models'] and '--bundled' in args:\n"
+        "    sys.stdout.buffer.write(data.encode('utf-8'))\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    launcher = (
+        f"import runpy, sys\n"
+        f"sys.argv = [sys.argv[0], *sys.argv[1:]]\n"
+        f"runpy.run_path({str(helper)!r}, run_name='__main__')\n"
+    )
+    if os.name == "nt":
+        py = bindir / "_codex_launch.py"
+        py.write_text(launcher, encoding="utf-8")
+        (bindir / "codex.cmd").write_text(
+            f"@echo off\r\n\"{sys.executable}\" \"{py}\" %*\r\n",
+            encoding="utf-8",
+        )
+    shim = bindir / "codex"
+    shim.write_text("#!/usr/bin/env python3\n" + launcher, encoding="utf-8")
+    try:
+        shim.chmod(0o755)
+    except OSError:
+        pass
+
 from adjust_context_window import (
     cleaned_path,
     decode_utf8_output,
@@ -378,6 +412,57 @@ class AdjustCliIntegrationTests(unittest.TestCase):
                 rc = mod.main()
             self.assertEqual(rc, 0)
             self.assertFalse((home / "yjwd-grok.config.toml").exists())
+
+    def test_exact_user_command_missing_profile_catalog_and_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "codex-home"
+            home.mkdir()
+            bindir = root / "bin"
+            write_fake_codex(
+                bindir,
+                [{"slug": "gpt-5.5", "display_name": "GPT", "context_window": 272000}],
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+            env["CODEX_HOME"] = str(home)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "adjust_context_window.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--profile",
+                    "yjwd-grok",
+                    "--bootstrap-bundled",
+                    "--from-cache",
+                    "--context-window",
+                    "300000",
+                    "--reasoning-levels",
+                    "low,medium,high,xhigh",
+                    "--yes",
+                    "--codex-home",
+                    str(home),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("does not exist", result.stderr)
+            self.assertIn("synthesizing", result.stderr)
+            profile = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
+            self.assertIn('model = "grok-4.6"', profile)
+            self.assertIn("model_context_window = 300000", profile)
+            catalog = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+            self.assertEqual(grok["context_window"], 300000)
+            self.assertEqual(
+                [item["effort"] for item in grok["supported_reasoning_levels"]],
+                ["low", "medium", "high", "xhigh"],
+            )
+            self.assertIn("cloned from:          (synthesized)", result.stdout)
 
 
 class LiveCodexDumpTests(unittest.TestCase):
