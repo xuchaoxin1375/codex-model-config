@@ -23,7 +23,7 @@ Python 脚本跨平台。跑完后会按当前 OS 打印后续命令：Unix shel
 
 ## Shell 差异
 
-两边都需要 **Python 3.11+**（脚本用 `tomllib`）。`~` 在 Python 里会扩成用户主目录；写进 TOML 的 `model_catalog_json` 必须是**绝对路径**，推荐正斜杠，例如 `/home/<user>/.codex/models.json` 或 `C:/Users/<user>/.codex/models.json`。`~/.codex/models.json` 这种写法在部分客户端不可靠。
+两边都需要 **Python 3.11+**（脚本用 `tomllib`）。`~` 在 Python 里会扩成用户主目录；写进 TOML 的 `model_catalog_json` 必须是**绝对路径**，推荐正斜杠，例如 `/home/<user>/.codex/yjwd-grok-models.json` 或 `C:/Users/<user>/.codex/yjwd-grok-models.json`。不要指向 Codex 保留的 `~/.codex/models.json`。
 
 ### Unix shell
 
@@ -37,7 +37,7 @@ Python 脚本跨平台。跑完后会按当前 OS 打印后续命令：Unix shel
 python3 scripts/init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --yes
 set -a && . ~/.config/models.env && set +a
 export HTTPS_PROXY=http://127.0.0.1:7897
-codex debug models --bundled > ~/.codex/models.json
+codex debug models --bundled > ~/.codex/yjwd-grok-models.json
 ```
 
 ### PowerShell
@@ -231,7 +231,7 @@ codex --strict-config doctor
 应看到 `config.toml parse ok`。不要把 `--profile` 传给 `doctor`。目录校验把 JSON 写到文件再查，不要把 `debug models` 管道进 Python stdin。
 
 ```bash
-codex -c model_catalog_json='"/home/<user>/.codex/models.json"' debug models > /tmp/codex-models-debug.json
+codex -c model_catalog_json='"/home/<user>/.codex/yjwd-grok-models.json"' debug models > /tmp/codex-models-debug.json
 ```
 
 PowerShell 不要用 `>`。脚本结束时打印的 `codex -c ... debug models` 已按当前 OS 引好号；把 stdout 交给 Python 写文件即可。

@@ -3,7 +3,7 @@
 
 Edits:
   - top-level keys in a config/profile TOML
-  - the matching entry in models.json
+  - the matching entry in <profile>-models.json (never ~/.codex/models.json)
 
 If the catalog or model entry is missing, pass --bootstrap-bundled and/or
 --from-cache/--clone-from instead of hand-editing JSON. If --profile points at
@@ -30,7 +30,7 @@ from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shell_hints import print_next_debug_models, python_cmd
+from shell_hints import catalog_posix, print_next_debug_models, python_cmd
 from model_meta import (
     REASONING_EFFORTS,
     WIRE_APIS,
@@ -199,6 +199,68 @@ def find_source_entry(
     return None
 
 
+RESERVED_CATALOG_NAMES = frozenset({"models.json", "models_cache.json"})
+
+
+def dedicated_catalog_path(codex_home: Path, profile: str | None) -> Path:
+    stem = profile or "custom"
+    return (codex_home / f"{stem}-models.json").expanduser()
+
+
+def is_reserved_catalog(path: Path, codex_home: Path) -> bool:
+    try:
+        resolved = path.expanduser().resolve()
+        home = codex_home.expanduser().resolve()
+    except OSError:
+        return path.name.lower() in RESERVED_CATALOG_NAMES
+    return resolved.parent == home and resolved.name.lower() in RESERVED_CATALOG_NAMES
+
+
+def top_level_catalog(config_text: str) -> str | None:
+    data = tomllib.loads(config_text)
+    value = data.get("model_catalog_json")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def resolve_catalog_path(
+    *,
+    explicit: str | None,
+    config_text: str,
+    codex_home: Path,
+    profile: str | None,
+) -> tuple[Path, str | None]:
+    dedicated = dedicated_catalog_path(codex_home, profile).resolve()
+    if explicit:
+        path = Path(explicit).expanduser().resolve()
+        note = None
+        if is_reserved_catalog(path, codex_home):
+            note = (
+                f"using reserved {path.name}; Codex may reject it. "
+                f"Default catalog is {dedicated.name}"
+            )
+        return path, note
+    existing = top_level_catalog(config_text)
+    if existing:
+        path = Path(existing).expanduser()
+        path = path.resolve() if path.is_absolute() else (codex_home / path).resolve()
+        if is_reserved_catalog(path, codex_home):
+            return dedicated, (
+                f"model_catalog_json pointed at reserved {path.name}; "
+                f"migrating to {dedicated}. Pass --catalog to keep the existing file."
+            )
+        return path, None
+    return dedicated, None
+
+
+def ensure_required_model_fields(
+    model: dict[str, Any],
+    skeleton: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not model.get("shell_type"):
+        model["shell_type"] = (skeleton or {}).get("shell_type") or "shell_command"
+    return model
+
+
 def synthesize_model_entry(
     slug: str,
     *,
@@ -206,16 +268,17 @@ def synthesize_model_entry(
     reasoning_levels: list[str],
     default_reasoning: str,
     input_modalities: list[str],
+    skeleton: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
-        "slug": slug,
-        "display_name": slug,
-        "context_window": context_window,
-        "max_context_window": context_window,
-        "supported_reasoning_levels": build_reasoning_levels(reasoning_levels, {}),
-        "default_reasoning_level": default_reasoning,
-        "input_modalities": list(input_modalities),
-    }
+    entry = copy.deepcopy(skeleton) if skeleton else {}
+    entry["slug"] = slug
+    entry["display_name"] = slug
+    entry["context_window"] = context_window
+    entry["max_context_window"] = context_window
+    entry["supported_reasoning_levels"] = build_reasoning_levels(reasoning_levels, entry)
+    entry["default_reasoning_level"] = default_reasoning
+    entry["input_modalities"] = list(input_modalities)
+    return ensure_required_model_fields(entry, skeleton)
 
 
 def missing_config_text(
@@ -345,11 +408,14 @@ def main() -> int:
         default="responses",
         help="provider wire_api when creating a missing --profile; default: responses",
     )
-    parser.add_argument("--catalog", help="models.json path (default: <codex-home>/models.json)")
+    parser.add_argument(
+        "--catalog",
+        help="existing catalog JSON to edit; default: <codex-home>/<profile>-models.json",
+    )
     parser.add_argument(
         "--bootstrap-bundled",
         action="store_true",
-        help="create models.json from `codex debug models --bundled` when missing",
+        help="create the dedicated catalog from `codex debug models --bundled` when missing",
     )
     parser.add_argument(
         "--from-cache",
@@ -395,7 +461,6 @@ def main() -> int:
         config = (codex_home / f"{args.profile}.config.toml").expanduser().resolve()
     else:
         config = (Path(args.config) if args.config else codex_home / "config.toml").expanduser().resolve()
-    catalog = (Path(args.catalog) if args.catalog else codex_home / "models.json").expanduser().resolve()
     cache_path = codex_home / "models_cache.json"
 
     skill_defaults = load_skill_defaults()
@@ -438,6 +503,21 @@ def main() -> int:
         config_text, created_profile = missing_config_text(parser, args, config, codex_home, reasoning_effort)
     else:
         config_text = config.read_text(encoding="utf-8")
+
+    try:
+        catalog, catalog_note = resolve_catalog_path(
+            explicit=args.catalog,
+            config_text=config_text,
+            codex_home=codex_home,
+            profile=args.profile,
+        )
+    except tomllib.TOMLDecodeError:
+        catalog, catalog_note = (
+            dedicated_catalog_path(codex_home, args.profile).resolve(),
+            None,
+        )
+    if catalog_note:
+        print(f"warning: {catalog_note}", file=sys.stderr)
     try:
         current_model = top_level_model(config_text)
     except tomllib.TOMLDecodeError as exc:
@@ -525,6 +605,7 @@ def main() -> int:
                     "pass --from-cache and/or --clone-from <slug>, or add the entry first"
                 )
             modalities = input_modalities or list(skill_defaults["input_modalities"])
+            skeleton = next((item for item in models if isinstance(item, dict)), None)
             source = (
                 synthesize_model_entry(
                     args.model,
@@ -532,6 +613,7 @@ def main() -> int:
                     reasoning_levels=reasoning_levels,
                     default_reasoning=default_reasoning,
                     input_modalities=modalities,
+                    skeleton=skeleton,
                 ),
                 "(synthesized)",
             )
@@ -586,11 +668,14 @@ def main() -> int:
         model["input_modalities"] = input_modalities
     if "comp_hash" in model:
         model["comp_hash"] = f"{args.model}-{context_window}"
-    models[index] = model
+    models[index] = ensure_required_model_fields(model, models[0] if models else None)
+    for offset, item in enumerate(models):
+        if isinstance(item, dict):
+            models[offset] = ensure_required_model_fields(item)
 
     config_text = set_top_level_key(config_text, "model_context_window", context_window)
     config_text = set_top_level_key(config_text, "model_auto_compact_token_limit", clean_compact)
-    config_text = set_top_level_key(config_text, "model_catalog_json", str(catalog))
+    config_text = set_top_level_key(config_text, "model_catalog_json", catalog_posix(catalog))
     config_text = set_top_level_key(config_text, "model_reasoning_effort", reasoning_effort)
     try:
         tomllib.loads(config_text)

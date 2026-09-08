@@ -45,7 +45,7 @@ show_raw_agent_reasoning = true # 显示原始推理
 # OpenRouter 的 command auth 可在联网环境刷新官方目录;
 # 这里同时提供确定性本地元数据,避免目录刷新失败时回退为无元数据。
 # 注意,必须在默认配置config.toml中设置auth.command方式才有效,在-p 参数中指定配置不生效.
-# 本地 models.json 用 `codex debug models --bundled` 从本机导出再追加，不是下载 OpenAI 目录，也不需要代理。
+# 本地专用 catalog（<profile>-models.json）用 `codex debug models --bundled` 导出再追加；不要写 ~/.codex/models.json。
 # model_catalog_json = "/home/opcxxu/.codex/openrouter-models.json"
 
 [model_providers.provider-id]

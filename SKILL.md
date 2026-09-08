@@ -23,7 +23,7 @@ description: >
 - 新增模型时从 `references/template.config.toml` 生成 `~/.codex/<provider-id>.config.toml`。未指定 provider-id 则用模型系列名（`gpt` / `grok` / `deepseek` 等），全量替换占位符，不要只改第一处。
 - 改真正设置 `model=model-name` 的那份 TOML。常见是 `~/.codex/<profile>.config.toml`，如果没有现成的`.toml`,则创建一份,而不是用 `config.toml`。如果把 `model_catalog_json` 写进默认配置，会替换每一个会话的内置目录(model_catalog),这可能不是用户想要的,影响面太大。
 - 目录 `slug` 必须和 TOML 的 `model` 完全一致。例如`x-ai/grok-4.6` 不会作用于 `model = "grok-4.6"`。
-- `model_catalog_json` 必须是绝对路径。`~/.codex/models.json` 这种写法在部分客户端不可靠。
+- `model_catalog_json` 必须是绝对路径，指向 `~/.codex/<profile>-models.json` 这类专用文件。不要用 `~/.codex/models.json`（Codex 保留名，缺 `shell_type` 等字段会无法启动）。
 - 自定义目录会替换该进程的内置目录。先用 `codex debug models --bundled` 引导完整目录再追加，不要写成只有一条模型。
 - 创建或修改 `model_catalog_json` 时，内容来自本机 bundled / 现有 `models.json` / `models_cache.json`，不是访问 OpenAI。不要为写 catalog 拉外网或探测本地代理。初学者说明见 [references/catalog-source.md](references/catalog-source.md)。
 - 密钥用 `env_key`，不要写进 TOML。用户给出 API Key 时，写入 `~/.config/models.env`：文件不存在则创建（权限 `600`），已存在则追加 `KEY=value`；同名键更新该行。不要在回复里回显密钥。供应商文档里的 `experimental_bearer_token` 只作对照，不是默认。
@@ -44,7 +44,7 @@ description: >
 
 查不到窗口或档位：用模板 `skill.codex-model-config` 默认值（`context_window=258400`，五档思考，`reasoning_effort=medium`），并告诉用户部分档位可能被上游忽略。官方明确更大窗口或更少档位时用 CLI 覆盖。`base_url` / slug 仍不能猜；缺这些才请用户核对。
 
-写 `models.json` 仍只用本机 bundled / 现有文件 / cache，不要为写 catalog 去下载 OpenAI 或探测代理。细节见 [references/workflow.md](references/workflow.md)。
+写专用 catalog 仍只用本机 bundled / 现有文件 / cache，不要为写 catalog 去下载 OpenAI 或探测代理。细节见 [references/workflow.md](references/workflow.md)。
 
 ## 工作流
 

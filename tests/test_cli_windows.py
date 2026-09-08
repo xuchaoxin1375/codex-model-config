@@ -49,6 +49,8 @@ from adjust_context_window import (
     decode_utf8_output,
     dump_bundled_catalog,
     find_source_entry,
+    is_reserved_catalog,
+    resolve_catalog_path,
 )
 from model_meta import parse_reasoning_levels
 
@@ -220,7 +222,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
                 'model_reasoning_effort = "high"\n',
                 encoding="utf-8",
             )
-            (home / "models.json").write_text(
+            (home / "yjwd-grok-models.json").write_text(
                 json.dumps({"models": [{"slug": "gpt-5.5", "context_window": 272000}]}),
                 encoding="utf-8",
             )
@@ -264,7 +266,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            catalog = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
             grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
             self.assertEqual(grok["context_window"], 300000)
             self.assertEqual(grok["max_context_window"], 300000)
@@ -318,7 +320,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
                 with mock.patch.object(mod, "dump_bundled_catalog", fake_dump):
                     rc = mod.main()
             self.assertEqual(rc, 0)
-            catalog = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
             slugs = [item["slug"] for item in catalog["models"]]
             self.assertIn("gpt-5.5", slugs)
             self.assertIn("grok-4.6", slugs)
@@ -368,7 +370,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             self.assertIn('model_provider = "yjwd-grok"', profile)
             self.assertIn('base_url = "https://example.invalid/v1"', profile)
             self.assertIn("model_context_window = 300000", profile)
-            catalog = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
             self.assertIn("grok-4.6", [item["slug"] for item in catalog["models"]])
 
     def test_missing_default_config_explains_profile(self):
@@ -394,7 +396,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            (home / "models.json").write_text(
+            (home / "yjwd-grok-models.json").write_text(
                 json.dumps({"models": [{"slug": "grok-4.6", "context_window": 272000}]}),
                 encoding="utf-8",
             )
@@ -455,14 +457,187 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             profile = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
             self.assertIn('model = "grok-4.6"', profile)
             self.assertIn("model_context_window = 300000", profile)
-            catalog = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            self.assertIn("yjwd-grok-models.json", profile)
+            self.assertFalse((home / "models.json").exists())
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
             grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
             self.assertEqual(grok["context_window"], 300000)
+            self.assertEqual(grok.get("shell_type"), "shell_command")
             self.assertEqual(
                 [item["effort"] for item in grok["supported_reasoning_levels"]],
                 ["low", "medium", "high", "xhigh"],
             )
             self.assertIn("cloned from:          (synthesized)", result.stdout)
+
+    def test_reserved_models_json_is_migrated(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "yjwd-grok.config.toml").write_text(
+                'model = "grok-4.6"\n'
+                'model_catalog_json = "' + (home / "models.json").as_posix() + '"\n',
+                encoding="utf-8",
+            )
+            (home / "models.json").write_text(
+                json.dumps({"models": [{"slug": "gpt-5.5", "context_window": 272000}]}),
+                encoding="utf-8",
+            )
+            (home / "yjwd-grok-models.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {"slug": "gpt-5.5", "context_window": 272000, "shell_type": "shell_command"},
+                            {"slug": "grok-4.6", "context_window": 1000},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--context-window",
+                "300000",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            toml = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
+            self.assertIn("yjwd-grok-models.json", toml)
+            self.assertNotIn('model_catalog_json = "' + (home / "models.json").as_posix() + '"', toml)
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
+            grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+            self.assertEqual(grok["context_window"], 300000)
+            self.assertEqual(grok.get("shell_type"), "shell_command")
+            # Codex-reserved file is left alone
+            original = json.loads((home / "models.json").read_text(encoding="utf-8"))
+            self.assertEqual(original["models"][0]["slug"], "gpt-5.5")
+
+    def test_existing_custom_catalog_is_edited(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            custom = home / "openrouter-models.json"
+            (home / "yjwd-grok.config.toml").write_text(
+                'model = "grok-4.6"\n'
+                'model_catalog_json = "' + custom.as_posix() + '"\n',
+                encoding="utf-8",
+            )
+            custom.write_text(
+                json.dumps({"models": [{"slug": "grok-4.6", "context_window": 1000}]}),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--context-window",
+                "300000",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            self.assertFalse((home / "yjwd-grok-models.json").exists())
+            catalog = json.loads(custom.read_text(encoding="utf-8"))
+            grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+            self.assertEqual(grok["context_window"], 300000)
+            toml = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
+            self.assertIn("openrouter-models.json", toml)
+
+    def test_explicit_catalog_flag_edits_existing_file(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            custom = home / "already.json"
+            (home / "yjwd-grok.config.toml").write_text(
+                'model = "grok-4.6"\n',
+                encoding="utf-8",
+            )
+            custom.write_text(
+                json.dumps({"models": [{"slug": "grok-4.6", "context_window": 1000}]}),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--catalog",
+                str(custom),
+                "--context-window",
+                "300000",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            self.assertFalse((home / "yjwd-grok-models.json").exists())
+            catalog = json.loads(custom.read_text(encoding="utf-8"))
+            grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+            self.assertEqual(grok["context_window"], 300000)
+
+
+class CatalogPathTests(unittest.TestCase):
+    def test_codex_home_models_json_is_reserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertTrue(is_reserved_catalog(home / "models.json", home))
+            self.assertFalse(is_reserved_catalog(home / "yjwd-grok-models.json", home))
+
+    def test_resolve_skips_reserved_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            path, note = resolve_catalog_path(
+                explicit=None,
+                config_text='model_catalog_json = "' + (home / "models.json").as_posix() + '"\n',
+                codex_home=home,
+                profile="yjwd-grok",
+            )
+            self.assertEqual(path, (home / "yjwd-grok-models.json").resolve())
+            self.assertIsNotNone(note)
+
+    def test_explicit_catalog_keeps_reserved_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            reserved = home / "models.json"
+            path, note = resolve_catalog_path(
+                explicit=str(reserved),
+                config_text="",
+                codex_home=home,
+                profile="yjwd-grok",
+            )
+            self.assertEqual(path, reserved.resolve())
+            self.assertIsNotNone(note)
+
+    def test_existing_toml_catalog_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            custom = home / "openrouter-models.json"
+            path, note = resolve_catalog_path(
+                explicit=None,
+                config_text='model_catalog_json = "' + custom.as_posix() + '"\n',
+                codex_home=home,
+                profile="yjwd-grok",
+            )
+            self.assertEqual(path, custom.resolve())
+            self.assertIsNone(note)
 
 
 class LiveCodexDumpTests(unittest.TestCase):
