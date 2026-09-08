@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex 模型配置"
+  short_description: "为 Codex 完整配置提供方、模型目录和上下文窗口"
+  default_prompt: "使用 $codex-model-config 为 Codex 接入或切换模型提供方、目录和上下文窗口，且不要覆盖无关配置。"

@@ -1,0 +1,65 @@
+# profile.toml配置模板
+# 1. model_provider = "provider-id"  # 使用批量替换而不是仅替换第一个位置,可以自定义,后续引用保持一致即可
+# 2. model = "model-id" # 要求严格,只能填写供应商提供的可用模型型号名称
+# 3. base_url="" # 要求严格,按供应商提供的url填写.
+# 4. 未指定 provider-id 时，用模型系列名（gpt / grok / deepseek 等）同时作为
+#    model_provider、[model_providers.<id>] 和 ~/.codex/<id>.config.toml 文件名。
+#    用 scripts/init_profile.py 做全量替换，不要只改第一处。
+
+# provider-id
+model_provider = "provider-id" 
+
+# 上下文(可选,未必要用满,例如对于1M=1000k上下文,可以仅用到353k);通常两个字段要同时设置,并且关键的models_catalog_json中要有对应的配置,
+# 否则可能不生效并且部分功能不可用(例如模型名称自定义和思考深度)
+# model_context_window = 372000
+# model_auto_compact_token_limit = 330000
+
+# 其他
+preferred_auth_method = "apikey"
+forced_login_method = "api"
+# 安全和权限配置
+## cli_auth_credentials_store = "file" # auto,file,keyring
+
+# 默认的:workspace-write,读取整个电脑上的文件,但修改仅限当前 Workspace（打开的项目）
+## sandbox_mode = "workspace-write" # read-only,workspace-write,danger-full-access
+
+## 默认的询问策略是on-request,模型自己判断是否询问用户,untrusted,大部分危险操作都询问
+approval_policy = "never" # 永远不要弹确认框。如果权限允许：直接执行。如果权限不允许：立即失败。
+
+# 模型配置
+model = "model-id" # 例如:gpt-5.6-luna
+model_reasoning_effort = "low" # low medium high xhigh max
+show_raw_agent_reasoning = true # 显示原始推理
+
+# OpenRouter 的 command auth 可在联网环境刷新官方目录;
+# 这里同时提供确定性本地元数据,避免目录刷新失败时回退为无元数据。
+# 注意,必须在默认配置config.toml中设置auth.command方式才有效,在-p 参数中指定配置不生效.
+# 本地 models.json 用 `codex debug models --bundled` 从本机导出再追加，不是下载 OpenAI 目录，也不需要代理。
+# model_catalog_json = "/home/opcxxu/.codex/openrouter-models.json"
+
+[model_providers.provider-id]
+name = "provider-id" 
+base_url = "" # 记得填写,否则提示builder error这类错误,更不可能配置成功.
+wire_api = "responses"
+requires_openai_auth = true # openai 风控时可能需要此配置,和其读取auth.json配置与否有关.(如果接入非openai模型,可以不配置)
+
+# 按需设置下面的属性,这些配置在model_providers.<id>块下,不能单独移到前面去!
+## 如果是主配置文件profile.toml,则下面的env_key可以不设置,可以通过配置.codex/auth.json中写入密钥代替,但是灵活度不高
+## 将密钥配置在shell或系统的环境变量中(变量名和这里配置的值对应),这样启动codex时指定profile后,能够读同名的环境变量作为api key.(而不是直接将密钥填写在此.toml配置文件中,这看起来有点繁琐,但是更加安全.)
+env_key = "API_KEY" # 多配置用户记得修改此处
+# experimental_bearer_token = "" # 密钥不推荐直接填写。用户给出 API Key 时写入 ~/.config/models.env（没有则创建，有则追加），TOML 只保留 env_key 变量名。
+
+## 这里的环境变量名取值要和env_key的取值要相同
+env_key_instructions = "请设置env_key配置字段所指的环境变量名取值来提供密钥." 
+# supports_websockets = false 
+
+# 其他验证(密钥传递)方式: 参考openrouter 配置的元数据块,信息更完善,代替env_key(不同系统平台使用不同的shell,command和args数组上有差异)
+## windows powershell
+# [model_providers.<provider-id>.auth]
+# command = "powershell"
+# args = ["-NoProfile", "-Command", "Write-Output $env:OPENROUTER_API_KEY"]
+
+## unix shell
+# [model_providers.<provider-id>.auth]
+# command = "sh"
+# args = ["-c", "echo $OPENROUTER_API_KEY"]
