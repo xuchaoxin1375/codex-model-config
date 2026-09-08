@@ -24,6 +24,7 @@ from model_meta import (
     REASONING_EFFORTS,
     WIRE_APIS,
     compact_limit_for,
+    install_as_default_config,
     load_skill_defaults,
     set_top_level_key,
 )
@@ -247,6 +248,11 @@ def parse_args() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="overwrite an existing profile")
+    parser.add_argument(
+        "--as-default",
+        action="store_true",
+        help="backup ~/.codex/config.toml and copy this profile over it",
+    )
     parser.add_argument("--yes", action="store_true")
     return parser
 
@@ -307,6 +313,8 @@ def main() -> int:
     if args.defaults or args.context_window is None or args.reasoning_effort is None:
         print("  defaults:    skill.codex-model-config template block")
     print(f"  output:      {output}")
+    if args.as_default:
+        print(f"  as_default:  backup {default_config} then copy this profile over it")
     if args.api_key:
         action = "append" if env_file.exists() else "create"
         print(f"  api_key:     (hidden) {action} {env_file}")
@@ -341,6 +349,11 @@ def main() -> int:
         print(f"Backed up {output} -> {backup}")
     output.write_text(rendered, encoding="utf-8")
     print(f"Wrote {output}")
+    if args.as_default:
+        backup = install_as_default_config(output, default_config)
+        if backup:
+            print(f"Backed up {default_config} -> {backup}")
+        print(f"Installed {output} as {default_config}")
     if args.api_key:
         try:
             result = upsert_models_env(env_file, env_key, args.api_key)
@@ -350,11 +363,15 @@ def main() -> int:
         print("Next:")
         print_next_load_env(env_file)
         print(f"  codex --profile {provider}")
+        if args.as_default:
+            print("  or start without --profile to use the new default config.toml")
     else:
         print("Next:")
         print(f"  add {env_key}=... to {env_file} (create the file if needed)")
         print_next_load_env(env_file)
         print(f"  codex --profile {provider}")
+        if args.as_default:
+            print("  or start without --profile to use the new default config.toml")
     print("  set model_catalog_json / context window with adjust_context_window.py if needed")
     return 0
 

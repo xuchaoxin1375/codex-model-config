@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import shutil
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -171,3 +173,22 @@ def set_top_level_key(text: str, key: str, value: Any) -> str:
             return "".join(lines)
     lines.insert(section_index, f"{key} = {toml_value(value)}\n")
     return "".join(lines)
+
+
+def install_as_default_config(source: Path, default_config: Path) -> Path | None:
+    """Backup default_config if present, then copy source over it.
+
+    Returns the backup path, or None if there was no existing default.
+    """
+    source = Path(source).expanduser().resolve()
+    default_config = Path(default_config).expanduser().resolve()
+    if source == default_config:
+        return None
+    default_config.parent.mkdir(parents=True, exist_ok=True)
+    backup: Path | None = None
+    if default_config.exists():
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = default_config.with_name(f"{default_config.name}.bak.{stamp}")
+        shutil.copy2(default_config, backup)
+    shutil.copy2(source, default_config)
+    return backup

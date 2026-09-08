@@ -52,6 +52,7 @@ from adjust_context_window import (
     is_reserved_catalog,
     resolve_catalog_path,
 )
+from model_meta import install_as_default_config
 from model_meta import parse_reasoning_levels
 
 
@@ -592,6 +593,121 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             catalog = json.loads(custom.read_text(encoding="utf-8"))
             grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
             self.assertEqual(grok["context_window"], 300000)
+
+    def test_as_default_copies_profile_over_config_toml(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "config.toml").write_text('model = "old-model"\n', encoding="utf-8")
+            (home / "yjwd-grok.config.toml").write_text(
+                'model = "grok-4.6"\n',
+                encoding="utf-8",
+            )
+            (home / "yjwd-grok-models.json").write_text(
+                json.dumps({"models": [{"slug": "grok-4.6", "context_window": 1000}]}),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--context-window",
+                "300000",
+                "--as-default",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            default = (home / "config.toml").read_text(encoding="utf-8")
+            self.assertIn('model = "grok-4.6"', default)
+            self.assertIn("model_context_window = 300000", default)
+            backups = list(home.glob("config.toml.bak.*"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn('model = "old-model"', backups[0].read_text(encoding="utf-8"))
+
+    def test_as_default_dry_run_does_not_replace_config(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "config.toml").write_text('model = "old-model"\n', encoding="utf-8")
+            (home / "yjwd-grok.config.toml").write_text(
+                'model = "grok-4.6"\n',
+                encoding="utf-8",
+            )
+            (home / "yjwd-grok-models.json").write_text(
+                json.dumps({"models": [{"slug": "grok-4.6", "context_window": 1000}]}),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--as-default",
+                "--dry-run",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            self.assertEqual((home / "config.toml").read_text(encoding="utf-8"), 'model = "old-model"\n')
+            self.assertFalse(list(home.glob("config.toml.bak.*")))
+
+
+class DefaultConfigInstallTests(unittest.TestCase):
+    def test_backup_then_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            source = home / "yjwd-grok.config.toml"
+            default = home / "config.toml"
+            source.write_text('model = "grok-4.6"\n', encoding="utf-8")
+            default.write_text('model = "old"\n', encoding="utf-8")
+            backup = install_as_default_config(source, default)
+            self.assertIsNotNone(backup)
+            self.assertTrue(backup.exists())
+            self.assertEqual(default.read_text(encoding="utf-8"), 'model = "grok-4.6"\n')
+            self.assertEqual(backup.read_text(encoding="utf-8"), 'model = "old"\n')
+
+    def test_init_profile_as_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "config.toml").write_text('model = "old"\n', encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init_profile.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--provider",
+                    "yjwd-grok",
+                    "--base-url",
+                    "https://example.invalid/v1",
+                    "--as-default",
+                    "--yes",
+                    "--codex-home",
+                    str(home),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            profile = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
+            default = (home / "config.toml").read_text(encoding="utf-8")
+            self.assertEqual(profile, default)
+            self.assertIn('model = "grok-4.6"', default)
+            backups = list(home.glob("config.toml.bak.*"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn('model = "old"', backups[0].read_text(encoding="utf-8"))
 
 
 class CatalogPathTests(unittest.TestCase):

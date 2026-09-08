@@ -59,7 +59,7 @@ description: >
 
 `--reasoning-levels` 只写入 `models.json` 的 `supported_reasoning_levels`（选择器能选哪些档）。当前用哪一档是 profile TOML 的 `model_reasoning_effort`（`--reasoning-effort` / `init_profile.py`）。目录默认档是 `default_reasoning_level`。模板里 `skill.codex-model-config` 注释块只给本 skill 读默认值，CLI 不会改模板本身。
 
-新建 profile 时优先跑 `scripts/init_profile.py`（全量替换模板里的 `provider-id` / `model-id`）。完整步骤见 [references/workflow.md](references/workflow.md)。
+新建 profile 时优先跑 `scripts/init_profile.py`（全量替换模板里的 `provider-id` / `model-id`）。完整步骤见 [references/workflow.md](references/workflow.md)。 若要把该 profile 变成默认会话配置，加 `--as-default`：先备份 `~/.codex/config.toml`，再把 profile 复制为 `config.toml`。`adjust_context_window.py --profile <id> --as-default` 同样在改完窗口/目录后提升为默认。
 
 窗口公式、目录引导和 compact 阈值见 [references/context-window-guide.md](references/context-window-guide.md)。
 

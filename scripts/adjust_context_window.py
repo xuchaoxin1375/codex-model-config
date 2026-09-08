@@ -36,6 +36,7 @@ from model_meta import (
     WIRE_APIS,
     build_reasoning_levels,
     compact_limit_for,
+    install_as_default_config,
     load_skill_defaults,
     parse_modalities,
     parse_reasoning_levels,
@@ -449,12 +450,19 @@ def main() -> int:
         help="comma-separated catalog input_modalities, e.g. text,image",
     )
     parser.add_argument("--force", action="store_true", help="allow editing a TOML whose model= does not match --model")
+    parser.add_argument(
+        "--as-default",
+        action="store_true",
+        help="backup <codex-home>/config.toml and copy this profile over it",
+    )
     parser.add_argument("--yes", action="store_true", help="apply without prompting")
     parser.add_argument("--dry-run", action="store_true", help="print the proposal and exit")
     args = parser.parse_args()
 
     if args.profile and args.config:
         parser.error("use either --profile or --config, not both")
+    if args.as_default and not args.profile:
+        parser.error("--as-default requires --profile")
 
     codex_home = Path(args.codex_home).expanduser()
     if args.profile:
@@ -645,6 +653,8 @@ def main() -> int:
         created_profile=created_profile,
         base_url=args.base_url or "",
     )
+    if args.as_default:
+        print(f"  as_default:            backup and replace {codex_home / 'config.toml'}")
 
     if args.dry_run:
         return 0
@@ -695,10 +705,18 @@ def main() -> int:
     print(f"Updated {catalog}")
     if created_profile and not (args.base_url or "").strip():
         print("Fill base_url in the new profile before starting Codex.")
+    if args.as_default:
+        default_config = Path(args.codex_home).expanduser() / "config.toml"
+        backup = install_as_default_config(config, default_config)
+        if backup:
+            print(f"Backed up {default_config} -> {backup}")
+        print(f"Installed {config} as {default_config}")
     print("Next:")
     print_next_debug_models(catalog)
     if args.profile:
         print(f"  start a new session with: codex --profile {args.profile}")
+    if args.as_default:
+        print("  or start without --profile to use the new default config.toml")
     print("  Reload VS Code and open a new conversation. `codex --profile` does not apply to doctor.")
     return 0
 
