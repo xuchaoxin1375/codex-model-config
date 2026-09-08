@@ -25,6 +25,18 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shell_hints import print_next_debug_models
+from model_meta import (
+    REASONING_EFFORTS,
+    build_reasoning_levels,
+    compact_limit_for,
+    load_skill_defaults,
+    parse_modalities,
+    parse_reasoning_levels,
+)
+
 
 def toml_value(value: Any) -> str:
     if isinstance(value, str):
@@ -139,15 +151,32 @@ def print_proposal(
     config: Path,
     cloned_from: str | None,
     bootstrapped: bool,
+    *,
+    effective_percent: int,
+    reasoning_effort: str | None,
+    default_reasoning: str | None,
+    reasoning_levels: list[str] | None,
+    input_modalities: list[str] | None,
+    using_defaults: bool,
 ) -> None:
     print("Proposed change")
     print(f"  model:                {slug}")
     print(f"  context_window:       {context}")
     print(f"  max_context_window:   {context}")
-    print(f"  effective_percent:    100")
+    print(f"  effective_percent:    {effective_percent}")
     print(f"  compact_limit:        {compact}")
     print(f"  model_catalog_json:   {catalog}")
     print(f"  config file:          {config}")
+    if reasoning_effort:
+        print(f"  reasoning_effort:     {reasoning_effort}")
+    if default_reasoning:
+        print(f"  default_reasoning:    {default_reasoning}")
+    if reasoning_levels:
+        print(f"  reasoning_levels:     {','.join(reasoning_levels)}")
+    if input_modalities:
+        print(f"  input_modalities:     {','.join(input_modalities)}")
+    if using_defaults:
+        print("  defaults:             skill.codex-model-config template block")
     if bootstrapped:
         print("  catalog source:       codex debug models --bundled")
     if cloned_from:
@@ -157,14 +186,24 @@ def print_proposal(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, help="catalog slug; must match config model=")
-    parser.add_argument("--context-window", required=True, type=int, help="target context window in tokens")
+    parser.add_argument(
+        "--context-window",
+        type=int,
+        default=None,
+        help="target context window; default: skill template 258400",
+    )
+    parser.add_argument(
+        "--defaults",
+        action="store_true",
+        help="apply skill template defaults (258400 context, five reasoning levels)",
+    )
     limit_group = parser.add_mutually_exclusive_group()
     limit_group.add_argument("--compact-limit", type=int, help="explicit compaction token limit")
     limit_group.add_argument(
         "--compact-percent",
         type=float,
         default=90.0,
-        help="compaction limit as % of context (default 90)",
+        help="compaction limit as %% of context (default: skill template)",
     )
     parser.add_argument("--codex-home", default=os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
     parser.add_argument("--profile", help="edit <codex-home>/<profile>.config.toml instead of config.toml")
@@ -181,6 +220,31 @@ def main() -> int:
         help="if the slug is missing, clone it from models_cache.json (including vendor-prefixed slugs)",
     )
     parser.add_argument("--clone-from", help="clone this catalog/cache slug when --model is missing")
+    parser.add_argument(
+        "--effective-percent",
+        type=int,
+        default=None,
+        help="catalog effective_context_window_percent; default: skill template 100",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=REASONING_EFFORTS,
+        help="set TOML model_reasoning_effort; default: skill template",
+    )
+    parser.add_argument(
+        "--default-reasoning-level",
+        choices=REASONING_EFFORTS,
+        help="catalog default_reasoning_level; default: skill template",
+    )
+    parser.add_argument(
+        "--reasoning-levels",
+        default=None,
+        help="comma-separated catalog levels; default: low,medium,high,xhigh,max",
+    )
+    parser.add_argument(
+        "--input-modalities",
+        help="comma-separated catalog input_modalities, e.g. text,image",
+    )
     parser.add_argument("--force", action="store_true", help="allow editing a TOML whose model= does not match --model")
     parser.add_argument("--yes", action="store_true", help="apply without prompting")
     parser.add_argument("--dry-run", action="store_true", help="print the proposal and exit")
@@ -197,12 +261,41 @@ def main() -> int:
     catalog = (Path(args.catalog) if args.catalog else codex_home / "models.json").expanduser().resolve()
     cache_path = codex_home / "models_cache.json"
 
-    if args.context_window <= 0:
+    skill_defaults = load_skill_defaults()
+    context_window = args.context_window or skill_defaults["context_window"]
+    effective_percent = args.effective_percent or skill_defaults["effective_percent"]
+    reasoning_effort = args.reasoning_effort or skill_defaults["reasoning_effort"]
+    if context_window <= 0:
         parser.error("--context-window must be positive")
-    if args.compact_limit is not None and not 0 < args.compact_limit <= args.context_window:
+    if args.compact_limit is not None and not 0 < args.compact_limit <= context_window:
         parser.error("--compact-limit must be between 1 and --context-window")
     if not 0 < args.compact_percent <= 100:
         parser.error("--compact-percent must be between 0 and 100")
+    if not 1 <= effective_percent <= 100:
+        parser.error("--effective-percent must be between 1 and 100")
+    try:
+        reasoning_levels = (
+            parse_reasoning_levels(args.reasoning_levels)
+            if args.reasoning_levels
+            else list(skill_defaults["reasoning_levels"])
+        )
+        input_modalities = (
+            parse_modalities(args.input_modalities) if args.input_modalities else None
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    default_reasoning = args.default_reasoning_level or skill_defaults["reasoning_effort"]
+    if default_reasoning not in reasoning_levels:
+        default_reasoning = reasoning_levels[0]
+    if reasoning_effort not in reasoning_levels:
+        parser.error("--reasoning-effort must be in --reasoning-levels")
+    using_defaults = (
+        args.defaults
+        or args.context_window is None
+        or args.reasoning_levels is None
+        or args.effective_percent is None
+        or args.reasoning_effort is None
+    )
     if not config.exists():
         parser.error(f"config file not found: {config}")
 
@@ -276,11 +369,27 @@ def main() -> int:
         index = len(models) - 1
         root["models"] = models
 
-    compact = args.compact_limit if args.compact_limit is not None else int(
-        args.context_window * args.compact_percent / 100
+    compact = (
+        args.compact_limit
+        if args.compact_limit is not None
+        else compact_limit_for(context_window, args.compact_percent)
     )
     clean_compact = max(1, compact)
-    print_proposal(args.model, args.context_window, clean_compact, catalog, config, cloned_from, bootstrapped)
+    print_proposal(
+        args.model,
+        context_window,
+        clean_compact,
+        catalog,
+        config,
+        cloned_from,
+        bootstrapped,
+        effective_percent=effective_percent,
+        reasoning_effort=reasoning_effort,
+        default_reasoning=default_reasoning,
+        reasoning_levels=reasoning_levels,
+        input_modalities=input_modalities,
+        using_defaults=using_defaults,
+    )
 
     if args.dry_run:
         return 0
@@ -294,17 +403,22 @@ def main() -> int:
 
     model = dict(models[index])
     model["slug"] = args.model
-    model["context_window"] = args.context_window
-    model["max_context_window"] = args.context_window
-    model["effective_context_window_percent"] = 100
+    model["context_window"] = context_window
+    model["max_context_window"] = context_window
+    model["effective_context_window_percent"] = effective_percent
     model["auto_compact_token_limit"] = None
+    model["supported_reasoning_levels"] = build_reasoning_levels(reasoning_levels, model)
+    model["default_reasoning_level"] = default_reasoning
+    if input_modalities:
+        model["input_modalities"] = input_modalities
     if "comp_hash" in model:
-        model["comp_hash"] = f"{args.model}-{args.context_window}"
+        model["comp_hash"] = f"{args.model}-{context_window}"
     models[index] = model
 
-    config_text = set_top_level_key(config_text, "model_context_window", args.context_window)
+    config_text = set_top_level_key(config_text, "model_context_window", context_window)
     config_text = set_top_level_key(config_text, "model_auto_compact_token_limit", clean_compact)
     config_text = set_top_level_key(config_text, "model_catalog_json", str(catalog))
+    config_text = set_top_level_key(config_text, "model_reasoning_effort", reasoning_effort)
     try:
         tomllib.loads(config_text)
     except tomllib.TOMLDecodeError as exc:
@@ -320,7 +434,7 @@ def main() -> int:
     print(f"Updated {config}")
     print(f"Updated {catalog}")
     print("Next:")
-    print(f"  codex -c model_catalog_json='\"{catalog}\"' debug models")
+    print_next_debug_models(catalog)
     if args.profile:
         print(f"  start a new session with: codex --profile {args.profile}")
     print("  Reload VS Code and open a new conversation. `codex --profile` does not apply to doctor.")

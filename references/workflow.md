@@ -17,11 +17,56 @@
 | `base_url` | 提供方段 | 按供应商文档，不要擅自加或删 `/v1` |
 | `wire_api` | 提供方段 | Codex 常用 `responses`；供应商若只给 Chat Completions 才用 `chat` |
 | 密钥 | `~/.config/models.env` 的 `KEY=value`，TOML 只写 `env_key` 名 | 用户给了 key 就写入该文件：没有则创建，有则追加；不要写进 TOML，不要回显 |
-| 目标窗口 | TOML + 目录 | 先确认上游支持 |
+| 目标窗口 | TOML + 目录 | 先查官方文档；不确定就问用户，不要猜 |
+| 思考档位 | 见下方「档位写到哪」 | 查不到用模板默认五档；官方更少档位再用 `--reasoning-levels` 覆盖 |
 | 配置文件 | 默认 `config.toml` 或 `~/.codex/<profile>.config.toml` | 新模型默认新建 profile；看哪份文件真正设置了 `model=` |
 | 是否改默认模型 | 用户明确要求才改默认 `config.toml` 的 `model=` | 多 profile 用户通常应新建或编辑 profile |
 
 未要求时不要覆盖用户正在用的默认模型。本机若默认是另一家提供方，第三方模型应放进 profile。
+
+## 查询权威元数据
+
+coding agent 配指定模型时，**先联网查官方文档，再写配置**。这与「不要为写 catalog 去下载 OpenAI 目录」不冲突：查的是模型规格，catalog JSON 仍从本机 bundled / 现有文件 / `models_cache.json` 克隆。
+
+### 查什么
+
+- 接口使用的精确 slug（是否带 `x-ai/` 这类前缀；TOML `model` 与目录 `slug` 仍必须全等）
+- `base_url`、`wire_api`（`responses` 或 `chat`）
+- 上下文窗口（token）
+- 思考/推理档位：官方接受哪些 effort，默认档，有没有 `max`
+
+### 来源优先级
+
+1. 用户已经明确给出的值
+2. 供应商官方 API 文档 / 模型页（搜索时优先官网、官方 docs，不要用来源不明的博客数字）
+3. 本机 `~/.codex/models_cache.json`：只当克隆模板（显示名、`input_modalities`、其余字段），**不当**窗口和档位的证明
+
+官方与缓存冲突 → 用官方，克隆后覆盖窗口/档位字段。官方与用户冲突 → 停下来问。
+
+### 不确定时
+
+`base_url` 和精确 slug 仍不能猜，缺了就请用户核对官方文档。
+
+窗口和思考档位查不到时，**不要编造更大的数**。改用模板里本 skill 识读的默认块 `skill.codex-model-config`：
+
+- `context_window = 258400`（主流模型至少这个量级）
+- `reasoning_levels = ["low", "medium", "high", "xhigh", "max"]`（部分档位上游可不可用）
+- `reasoning_effort = "low"`
+
+简便写法：`--defaults`（或不传窗口/档位参数，脚本自己读模板）。
+
+官方明确更大窗口或更少档位时再覆盖：
+
+```bash
+python3 scripts/init_profile.py --model <slug> --base-url <url> --defaults --yes
+python3 scripts/adjust_context_window.py --model <slug> --profile <id> --bootstrap-bundled --from-cache --defaults --yes
+```
+
+```bash
+python3 scripts/adjust_context_window.py --model <slug> --profile <id> --bootstrap-bundled --from-cache --context-window <n> --reasoning-levels low,high,max --yes
+```
+
+Windows 把 `python3` 换成 `python`。
 
 ## 标准顺序
 
@@ -99,10 +144,23 @@ python3 scripts/init_profile.py --model grok-4.6 --provider yjwd-grok --base-url
 python3 scripts/init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --api-key '<user-key>' --yes
 ```
 
+```powershell
+python scripts\init_profile.py --model grok-4.6 --base-url https://example.invalid/v1 --api-key '<user-key>' --yes
+```
+
 脚本日志只打印「写入了哪个变量名和路径」，不打印密钥。Codex 从进程环境读取 `env_key`，因此启动前需要加载该文件，例如：
 
 ```bash
 set -a && . ~/.config/models.env && set +a
+```
+
+```powershell
+$envFile = Join-Path $env:USERPROFILE ".config\models.env"
+Get-Content -LiteralPath $envFile | ForEach-Object {
+  if ($_ -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+    Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim().Trim('"').Trim("'")
+  }
+}
 ```
 
 不要擅自改 shell rc。未给密钥时不要动 `models.env`。
@@ -179,7 +237,8 @@ codex debug models --bundled > ~/.codex/models.json
 | `max_context_window` | `model_context_window` 能达到的上限 |
 | `effective_context_window_percent` | 钳制后真正可用的百分比 |
 | `auto_compact_token_limit` | 模型自己的压缩上限；通常留 `null`，改由 TOML 决定 |
-| `supported_reasoning_levels` / `default_reasoning_level` | UI 思考档位与默认值 |
+| `supported_reasoning_levels` | UI 能选的思考档；由 `--reasoning-levels` 写入，例如 `low,high,xhigh` |
+| `default_reasoning_level` | 未手动选择时的目录默认档；由 `--default-reasoning-level` 写入 |
 | `input_modalities` | 含 `image` 时 Codex 才认为该模型能收图 |
 
 视觉模型：目录里没有 `image` 时，即使用户能贴图，Codex 也不会按视觉模型处理。
@@ -256,4 +315,18 @@ python3 scripts/adjust_context_window.py \
   --yes
 ```
 
-该脚本只改 `model_context_window`、`model_auto_compact_token_limit`、`model_catalog_json` 和对应目录条目。它不会创建 `[model_providers.<id>]`，也不会设置 `env_key`。
+该脚本改窗口相关键，以及思考档位（见「档位写到哪」）。它不会创建 `[model_providers.<id>]`，也不会设置 `env_key`。窗口和档位：有官方值就覆盖，没有就用模板默认。
+
+## 档位写到哪
+
+`--reasoning-levels low,high,xhigh` 这类改动**不会**写进 TOML 的列表字段（TOML 没有档位列表）。落实位置：
+
+| CLI | 写入文件 | 字段 | 作用 |
+|---|---|---|---|
+| `--reasoning-levels` | `~/.codex/models.json`（或 `--catalog`） | `supported_reasoning_levels` | 选择器里能选哪些档 |
+| `--default-reasoning-level` | 同上 | `default_reasoning_level` | 未手动选时的目录默认档；若不在 `--reasoning-levels` 里，改成列表第一项 |
+| `--reasoning-effort` | `~/.codex/<profile>.config.toml` | `model_reasoning_effort` | **这次请求实际用哪一档** |
+| `init_profile.py --reasoning-effort` | 新建的 profile TOML | `model_reasoning_effort` | 同上；`init_profile.py` 不写档位列表 |
+| 模板 `skill.codex-model-config` 注释块 | `references/template.config.toml`（复制进 profile 仍是注释） | `reasoning_levels` 等 | 只给本 skill / 脚本读默认值；Codex 不解析；CLI 覆盖不会改模板本身 |
+
+校验选择器档位：看 `debug models` 里该 slug 的 `supported_reasoning_levels`。校验当前请求档位：看 profile 里的 `model_reasoning_effort`。

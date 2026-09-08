@@ -4,6 +4,8 @@
 
 写或改 catalog 时，本 skill 只用本机数据。这一步不需要访问 `api.openai.com`，也不需要探测本地代理。
 
+配某个模型的**窗口和思考档位**时可以（也应该）联网查供应商官方文档。那是查规格，不是下载目录。查到的数字再写进本机 `models.json`；`models_cache.json` 只提供克隆骨架。
+
 目录形状、该改哪份 TOML、校验命令见 [workflow.md](workflow.md)。窗口字段如何钳制见 [context-window-guide.md](context-window-guide.md)。
 
 ## 两个容易混的名字

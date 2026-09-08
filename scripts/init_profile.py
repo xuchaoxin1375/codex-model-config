@@ -17,6 +17,17 @@ import sys
 import tomllib
 from pathlib import Path
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shell_hints import print_next_load_env
+from model_meta import (
+    REASONING_EFFORTS,
+    WIRE_APIS,
+    compact_limit_for,
+    load_skill_defaults,
+    set_top_level_key,
+)
+
 
 RESERVED_PROVIDER_IDS = {"openai", "ollama", "lmstudio"}
 
@@ -110,7 +121,10 @@ def upsert_models_env(path: Path, key: str, value: str) -> str:
     assignment = f"{key}={format_env_value(value)}"
     if not path.exists():
         path.write_text(assignment + "\n", encoding="utf-8")
-        path.chmod(0o600)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
         return "created"
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
@@ -142,6 +156,8 @@ def render_template(
     model: str,
     base_url: str,
     env_key: str,
+    wire_api: str,
+    reasoning_effort: str,
 ) -> str:
     if "provider-id" not in template:
         raise ValueError("template does not contain provider-id")
@@ -150,6 +166,8 @@ def render_template(
     text = template.replace("provider-id", provider).replace("model-id", model)
     text = replace_quoted_assignment(text, "base_url", base_url)
     text = replace_quoted_assignment(text, "env_key", env_key)
+    text = replace_quoted_assignment(text, "wire_api", wire_api)
+    text = replace_quoted_assignment(text, "model_reasoning_effort", reasoning_effort)
     return text
 
 
@@ -173,6 +191,29 @@ def parse_args() -> argparse.ArgumentParser:
         help="provider id and profile stem; default: model series (gpt, grok, deepseek, ...)",
     )
     parser.add_argument("--base-url", required=True, help="provider base_url")
+    parser.add_argument(
+        "--wire-api",
+        choices=WIRE_APIS,
+        default="responses",
+        help="provider wire_api; default: responses",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=REASONING_EFFORTS,
+        default=None,
+        help="TOML model_reasoning_effort; default: skill template",
+    )
+    parser.add_argument(
+        "--context-window",
+        type=int,
+        default=None,
+        help="TOML model_context_window; default: skill template 258400",
+    )
+    parser.add_argument(
+        "--defaults",
+        action="store_true",
+        help="apply skill template defaults (258400 context, five reasoning levels)",
+    )
     parser.add_argument(
         "--env-key",
         help="env var name for the API key; default: <PROVIDER>_API_KEY",
@@ -222,6 +263,12 @@ def main() -> int:
     env_key = args.env_key or f"{provider.replace('-', '_').upper()}_API_KEY"
     if not ENV_KEY_RE.fullmatch(env_key):
         parser.error(f"invalid env var name: {env_key!r}")
+    skill_defaults = load_skill_defaults(args.template)
+    reasoning_effort = args.reasoning_effort or skill_defaults["reasoning_effort"]
+    context_window = args.context_window or skill_defaults["context_window"]
+    if context_window <= 0:
+        parser.error("--context-window must be positive")
+    compact_limit = compact_limit_for(context_window, skill_defaults["compact_percent"])
     output = args.output or (args.codex_home / f"{provider}.config.toml")
     default_config = args.codex_home / "config.toml"
     if output.resolve() == default_config.resolve() and not args.force:
@@ -235,7 +282,11 @@ def main() -> int:
             model=args.model,
             base_url=args.base_url,
             env_key=env_key,
+            wire_api=args.wire_api,
+            reasoning_effort=reasoning_effort,
         )
+        rendered = set_top_level_key(rendered, "model_context_window", context_window)
+        rendered = set_top_level_key(rendered, "model_auto_compact_token_limit", compact_limit)
         tomllib.loads(rendered)
     except FileNotFoundError:
         parser.error(f"template not found: {args.template}")
@@ -248,7 +299,13 @@ def main() -> int:
     print(f"  model:       {args.model}")
     print(f"  provider:    {provider}{'  (from model series)' if derived else ''}")
     print(f"  base_url:    {args.base_url}")
+    print(f"  wire_api:    {args.wire_api}")
+    print(f"  reasoning:   {reasoning_effort}")
+    print(f"  context:     {context_window}")
+    print(f"  compact:     {compact_limit}")
     print(f"  env_key:     {env_key}")
+    if args.defaults or args.context_window is None or args.reasoning_effort is None:
+        print("  defaults:    skill.codex-model-config template block")
     print(f"  output:      {output}")
     if args.api_key:
         action = "append" if env_file.exists() else "create"
@@ -291,12 +348,12 @@ def main() -> int:
             parser.error(str(exc))
         print(f"{result.capitalize()} {env_key} in {env_file}")
         print("Next:")
-        print(f"  set -a && . {env_file} && set +a")
+        print_next_load_env(env_file)
         print(f"  codex --profile {provider}")
     else:
         print("Next:")
         print(f"  add {env_key}=... to {env_file} (create the file if needed)")
-        print(f"  set -a && . {env_file} && set +a")
+        print_next_load_env(env_file)
         print(f"  codex --profile {provider}")
     print("  set model_catalog_json / context window with adjust_context_window.py if needed")
     return 0

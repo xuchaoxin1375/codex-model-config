@@ -9,10 +9,21 @@
 # provider-id
 model_provider = "provider-id" 
 
-# 上下文(可选,未必要用满,例如对于1M=1000k上下文,可以仅用到353k);通常两个字段要同时设置,并且关键的models_catalog_json中要有对应的配置,
-# 否则可能不生效并且部分功能不可用(例如模型名称自定义和思考深度)
-# model_context_window = 372000
-# model_auto_compact_token_limit = 330000
+# BEGIN skill.codex-model-config
+# 本 skill 识读的默认值；Codex 不解析这段注释。
+# 主流模型至少按 258400 上下文 + low/medium/high/xhigh/max 五档思考。
+# 官方更大窗口或更少档位时用 CLI 覆盖。部分档位上游可不可用，允许保留。
+# context_window = 258400
+# compact_percent = 90
+# effective_percent = 100
+# reasoning_effort = "low"
+# reasoning_levels = ["low", "medium", "high", "xhigh", "max"]
+# input_modalities = ["text", "image"]
+# END skill.codex-model-config
+
+# 上下文须与 model_catalog_json 一起才会按目标生效。未必要用满上游上限。
+model_context_window = 258400
+model_auto_compact_token_limit = 232560
 
 # 其他
 preferred_auth_method = "apikey"
@@ -28,7 +39,7 @@ approval_policy = "never" # 永远不要弹确认框。如果权限允许：直�
 
 # 模型配置
 model = "model-id" # 例如:gpt-5.6-luna
-model_reasoning_effort = "low" # low medium high xhigh max
+model_reasoning_effort = "medium" # low medium high xhigh max
 show_raw_agent_reasoning = true # 显示原始推理
 
 # OpenRouter 的 command auth 可在联网环境刷新官方目录;
