@@ -2,6 +2,8 @@
 
 `model_catalog_json` **不是**去网上下载一份 OpenAI 目录，也不是供应商接口返回的实时列表。它只是告诉 Codex：启动时请读**这个本地 JSON 文件**。
 
+字段该看哪些、工具相关键、Codex 升级后新模型怎么兼容，见 [model-catalog-json.md](model-catalog-json.md)。
+
 写或改 catalog 时，本 skill 只用本机数据。这一步不需要访问 `api.openai.com`，也不需要探测本地代理。
 
 配某个模型的**窗口和思考档位**时可以（也应该）联网查供应商官方文档。那是查规格，不是下载目录。查到的数字再写进本机专用 catalog（`<profile>-models.json`）；`models_cache.json` 只提供克隆骨架。不要覆盖 Codex 自己的 `~/.codex/models.json`。
@@ -56,9 +58,12 @@ codex debug models --bundled > ~/.codex/yjwd-grok-models.json
 克隆顺序：
 
 1. 现有 `<profile>-models.json` 里的同 slug 条目
-2. `--clone-from` 指定的条目
+2. `--clone-from` 指定的条目（显式指定时保留源模型的 `tool_mode`）
 3. `~/.codex/models_cache.json` 里精确匹配，或唯一的 `*/slug` 后缀匹配
-4. 克隆后把 `slug` 改成 TOML 里的 `model` 值
+4. 仍没有则从 bundled 里选一条**直连工具**骨架（优先 `include_skills_usage_instructions=true` 且没有 `tool_mode=code_mode_only`，通常是 `gpt-5.5`），不要用 bundled 第一行的 `gpt-6-astra`
+5. 克隆后把 `slug` 改成 TOML 里的 `model` 值；合成条目会去掉 `code_mode_only`，并打开 skills/plugin/apps 说明和 `apply_patch`
+
+`code_mode_only` 会把 shell / apply_patch / MCP 收到 code mode 嵌套工具里。第三方模型（如 `grok-4.6`）往往不会走 code mode，表现就是「很多工具调不了」。不配 `model_catalog_json` 时未知 slug 走 Codex 默认直连工具，所以工具反而正常。
 
 `models_cache.json` 是 Codex 用过的模型缓存，适合当模板，但 slug 常常带供应商前缀。例如缓存里是 `x-ai/grok-4.6`，而 TOML 是 `model = "grok-4.6"`，必须把目录 `slug` 改成后者，否则窗口和显示名都不会作用到正在用的模型。
 

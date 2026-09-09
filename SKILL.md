@@ -25,6 +25,7 @@ description: >
 - 目录 `slug` 必须和 TOML 的 `model` 完全一致。例如`x-ai/grok-4.6` 不会作用于 `model = "grok-4.6"`。
 - `model_catalog_json` 必须是绝对路径，指向 `~/.codex/<profile>-models.json` 这类专用文件。不要用 `~/.codex/models.json`（Codex 保留名，缺 `shell_type` 等字段会无法启动）。
 - 自定义目录会替换该进程的内置目录。先用 `codex debug models --bundled` 引导完整目录再追加，不要写成只有一条模型。
+- 追加第三方模型时不要原样克隆 bundled 第一行（现在常是 `gpt-6-astra`，`tool_mode=code_mode_only` 且 `include_skills_usage_instructions=false`）。那会让 shell/apply_patch/MCP/skills 从初始工具列表消失。脚本会改克隆直连工具骨架，去掉 `code_mode_only`，并把 bundled 新模型上多出来的未知键补到自定义条目（不覆盖工具行为）。字段怎么读见 [references/model-catalog-json.md](references/model-catalog-json.md)。
 - 创建或修改 `model_catalog_json` 时，内容来自本机 bundled / 现有 `models.json` / `models_cache.json`，不是访问 OpenAI。不要为写 catalog 拉外网或探测本地代理。初学者说明见 [references/catalog-source.md](references/catalog-source.md)。
 - 密钥用 `env_key`，不要写进 TOML。用户给出 API Key 时，写入 `~/.config/models.env`：文件不存在则创建（权限 `600`），已存在则追加 `KEY=value`；同名键更新该行。不要在回复里回显密钥。供应商文档里的 `experimental_bearer_token` 只作对照，不是默认。
 - 不要运行供应商的 `curl | bash` / `irm | iex` 安装器，除非用户明确要求。那些脚本常改默认 `config.toml`，并可能用单供应商目录盖掉内置模型。
@@ -63,7 +64,7 @@ description: >
 
 窗口公式、目录引导和 compact 阈值见 [references/context-window-guide.md](references/context-window-guide.md)。
 
-catalog 文件从哪来（bundled、缓存、为何不是 OpenAI 下载）见 [references/catalog-source.md](references/catalog-source.md)。
+catalog 文件从哪来（bundled、缓存、为何不是 OpenAI 下载）见 [references/catalog-source.md](references/catalog-source.md)。字段主次见 [references/model-catalog-json.md](references/model-catalog-json.md)。
 
 profile / slug / 安装器类错误见 [references/常见陷阱.md](references/常见陷阱.md)。
 

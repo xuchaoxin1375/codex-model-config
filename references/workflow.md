@@ -198,6 +198,8 @@ DeepSeek 文档的差异（对照用，不是默认）：
 
 ## 目录元数据
 
+字段主次、工具相关键和升级兼容见 [model-catalog-json.md](model-catalog-json.md)。
+
 初学者先读 [catalog-source.md](catalog-source.md)：`model_catalog_json` 只是本地文件的绝对路径；内容从 Codex 自带的 bundled 目录导出，再追加自定义模型，**不会**去下载 OpenAI 目录，也不需要代理。
 
 自定义目录必须是：
@@ -220,12 +222,13 @@ codex debug models --bundled > ~/.codex/models.json
 
 克隆来源优先级：
 
-1. 现有 `models.json` 里的同 slug 条目
+1. 现有 `<profile>-models.json` 里的同 slug 条目
 2. `--clone-from` 指定的条目
 3. `~/.codex/models_cache.json` 里精确匹配，或唯一的 `*/slug` 后缀匹配
-4. 克隆后把 `slug` 改成 TOML 里的 `model` 值
+4. 仍没有则克隆 bundled 里直连工具骨架（优先 `gpt-5.5`），不要用第一行 `gpt-6-astra` 的 `code_mode_only`
+5. 克隆后把 `slug` 改成 TOML 里的 `model` 值；合成条目会打开 skills/plugin/apps 说明
 
-不要手写一份完整 DeepSeek/OpenAI 目录。保留克隆来的其余字段，只改当前任务需要的键。
+不要手写一份完整 DeepSeek/OpenAI 目录。保留克隆来的其余字段，只改当前任务需要的键。第三方模型不要带着 `tool_mode=code_mode_only`，否则初始工具列表会被收进 code mode。
 
 常改字段：
 

@@ -10,6 +10,8 @@ If the catalog or model entry is missing, pass --bootstrap-bundled and/or
 a missing TOML, the skill template is used to create it (pass --base-url).
 If --from-cache is set but models_cache.json is missing, warn and synthesize
 a catalog entry from the CLI/skill defaults instead of aborting.
+Synthesized third-party rows clone a tool-capable bundled model (skills on,
+not gpt-6-astra `code_mode_only`) unless --clone-from is explicit.
 Backups are written beside the edited files.
 """
 
@@ -262,6 +264,122 @@ def ensure_required_model_fields(
     return model
 
 
+def _tool_mode(model: dict[str, Any]) -> str | None:
+    value = model.get("tool_mode")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def skeleton_tool_score(model: dict[str, Any]) -> int:
+    """Prefer a general coding-agent row over gpt-6-astra-style code_mode_only."""
+    mode = _tool_mode(model)
+    score = 0
+    if mode in {None, "direct"}:
+        score += 8
+    elif mode == "code_mode":
+        score += 2
+    if model.get("include_skills_usage_instructions") is True:
+        score += 4
+    if model.get("include_plugin_usage_instructions") is True:
+        score += 2
+    if model.get("include_apps_usage_instructions") is True:
+        score += 1
+    if model.get("apply_patch_tool_type"):
+        score += 1
+    if model.get("shell_type"):
+        score += 1
+    return score
+
+
+def pick_tool_capable_skeleton(models: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates = [item for item in models if isinstance(item, dict)]
+    if not candidates:
+        return None
+    # Prefer direct-tool rows; tie-break by richer schema, then bundled order (newest first).
+    return max(
+        enumerate(candidates),
+        key=lambda pair: (skeleton_tool_score(pair[1]), len(pair[1]), -pair[0]),
+    )[1]
+
+
+# Copied from a richer/newer bundled row only when the skeleton lacks the key.
+# Identity, windows, and tool-access flags stay with the skeleton / CLI overlays.
+SCHEMA_FILL_SKIP_KEYS = frozenset(
+    {
+        "slug",
+        "display_name",
+        "description",
+        "tool_mode",
+        "base_instructions",
+        "model_messages",
+        "priority",
+        "visibility",
+        "upgrade",
+        "availability_nux",
+        "comp_hash",
+        "model_specialty",
+        "include_skills_usage_instructions",
+        "include_plugin_usage_instructions",
+        "include_apps_usage_instructions",
+        "context_window",
+        "max_context_window",
+        "auto_compact_token_limit",
+        "effective_context_window_percent",
+        "supported_reasoning_levels",
+        "default_reasoning_level",
+        "input_modalities",
+    }
+)
+
+
+def pick_schema_donor(models: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Newest, richest bundled row; used to copy unknown future keys only."""
+    candidates = [item for item in models if isinstance(item, dict)]
+    if not candidates:
+        return None
+    return max(
+        enumerate(candidates),
+        key=lambda pair: (len(pair[1]), -pair[0]),
+    )[1]
+
+
+def fill_unknown_schema_keys(
+    entry: dict[str, Any],
+    donor: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not donor:
+        return entry
+    for key, value in donor.items():
+        if key in SCHEMA_FILL_SKIP_KEYS or key in entry:
+            continue
+        entry[key] = copy.deepcopy(value)
+    return entry
+
+
+def apply_third_party_tool_defaults(model: dict[str, Any]) -> dict[str, Any]:
+    """Keep custom models on direct tools instead of nested code-mode-only tools.
+
+    Codex treats omitted tool_mode as feature-flag fallback (direct tools unless
+    code mode is enabled). `code_mode_only` hides shell/apply_patch/MCP from the
+    initial tool list. `include_skills_usage_instructions` defaults to false.
+    """
+    if _tool_mode(model) == "code_mode_only":
+        model.pop("tool_mode", None)
+    model["include_skills_usage_instructions"] = True
+    model["include_plugin_usage_instructions"] = True
+    model["include_apps_usage_instructions"] = True
+    if not model.get("apply_patch_tool_type"):
+        model["apply_patch_tool_type"] = "freeform"
+    if "supports_search_tool" not in model:
+        model["supports_search_tool"] = True
+    if not model.get("web_search_tool_type"):
+        model["web_search_tool_type"] = "text_and_image"
+    if not model.get("visibility"):
+        model["visibility"] = "list"
+    if "supported_in_api" not in model:
+        model["supported_in_api"] = True
+    return model
+
+
 def synthesize_model_entry(
     slug: str,
     *,
@@ -270,8 +388,10 @@ def synthesize_model_entry(
     default_reasoning: str,
     input_modalities: list[str],
     skeleton: dict[str, Any] | None = None,
+    schema_donor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entry = copy.deepcopy(skeleton) if skeleton else {}
+    fill_unknown_schema_keys(entry, schema_donor)
     entry["slug"] = slug
     entry["display_name"] = slug
     entry["context_window"] = context_window
@@ -279,6 +399,7 @@ def synthesize_model_entry(
     entry["supported_reasoning_levels"] = build_reasoning_levels(reasoning_levels, entry)
     entry["default_reasoning_level"] = default_reasoning
     entry["input_modalities"] = list(input_modalities)
+    apply_third_party_tool_defaults(entry)
     return ensure_required_model_fields(entry, skeleton)
 
 
@@ -421,7 +542,7 @@ def main() -> int:
     parser.add_argument(
         "--from-cache",
         action="store_true",
-        help="if the slug is missing, clone from models_cache.json when present; otherwise synthesize an entry",
+        help="if the slug is missing, clone from models_cache.json when present; otherwise synthesize a direct-tool entry",
     )
     parser.add_argument("--clone-from", help="clone this catalog/cache slug when --model is missing")
     parser.add_argument(
@@ -613,7 +734,7 @@ def main() -> int:
                     "pass --from-cache and/or --clone-from <slug>, or add the entry first"
                 )
             modalities = input_modalities or list(skill_defaults["input_modalities"])
-            skeleton = next((item for item in models if isinstance(item, dict)), None)
+            skeleton = pick_tool_capable_skeleton(models)
             source = (
                 synthesize_model_entry(
                     args.model,
@@ -622,6 +743,7 @@ def main() -> int:
                     default_reasoning=default_reasoning,
                     input_modalities=modalities,
                     skeleton=skeleton,
+                    schema_donor=pick_schema_donor(models),
                 ),
                 "(synthesized)",
             )
@@ -678,7 +800,9 @@ def main() -> int:
         model["input_modalities"] = input_modalities
     if "comp_hash" in model:
         model["comp_hash"] = f"{args.model}-{context_window}"
-    models[index] = ensure_required_model_fields(model, models[0] if models else None)
+    if not args.clone_from:
+        apply_third_party_tool_defaults(model)
+    models[index] = ensure_required_model_fields(model, pick_tool_capable_skeleton(models))
     for offset, item in enumerate(models):
         if isinstance(item, dict):
             models[offset] = ensure_required_model_fields(item)

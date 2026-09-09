@@ -45,12 +45,17 @@ def write_fake_codex(bindir: Path, models: list) -> None:
         pass
 
 from adjust_context_window import (
+    apply_third_party_tool_defaults,
     cleaned_path,
     decode_utf8_output,
     dump_bundled_catalog,
+    fill_unknown_schema_keys,
     find_source_entry,
     is_reserved_catalog,
+    pick_schema_donor,
+    pick_tool_capable_skeleton,
     resolve_catalog_path,
+    synthesize_model_entry,
 )
 from model_meta import install_as_default_config
 from model_meta import parse_reasoning_levels
@@ -129,6 +134,93 @@ class FindSourceEntryTests(unittest.TestCase):
     def test_ambiguous_suffix_is_none(self):
         models = [{"slug": "x-ai/grok-4.6"}, {"slug": "vendor/grok-4.6"}]
         self.assertIsNone(find_source_entry(models, "grok-4.6", None))
+
+
+class ToolCapableSkeletonTests(unittest.TestCase):
+    def test_prefers_skills_direct_over_astra_code_mode_only(self):
+        astra = {
+            "slug": "gpt-6-astra",
+            "tool_mode": "code_mode_only",
+            "include_skills_usage_instructions": False,
+            "include_plugin_usage_instructions": False,
+            "apply_patch_tool_type": "freeform",
+            "shell_type": "unified_exec",
+        }
+        gpt55 = {
+            "slug": "gpt-5.5",
+            "include_skills_usage_instructions": True,
+            "include_plugin_usage_instructions": True,
+            "include_apps_usage_instructions": True,
+            "apply_patch_tool_type": "freeform",
+            "shell_type": "unified_exec",
+        }
+        chosen = pick_tool_capable_skeleton([astra, gpt55])
+        self.assertEqual(chosen["slug"], "gpt-5.5")
+
+    def test_strips_code_mode_only_and_enables_instructions(self):
+        model = {
+            "slug": "grok-4.6",
+            "tool_mode": "code_mode_only",
+            "include_skills_usage_instructions": False,
+            "include_plugin_usage_instructions": False,
+            "include_apps_usage_instructions": False,
+        }
+        apply_third_party_tool_defaults(model)
+        self.assertNotIn("tool_mode", model)
+        self.assertTrue(model["include_skills_usage_instructions"])
+        self.assertTrue(model["include_plugin_usage_instructions"])
+        self.assertTrue(model["include_apps_usage_instructions"])
+        self.assertEqual(model["apply_patch_tool_type"], "freeform")
+
+    def test_equal_score_prefers_richer_then_newer(self):
+        older = {"slug": "gpt-5.4", "include_skills_usage_instructions": True, "a": 1}
+        newer = {"slug": "gpt-5.5", "include_skills_usage_instructions": True, "a": 1, "b": 2}
+        self.assertEqual(pick_tool_capable_skeleton([newer, older])["slug"], "gpt-5.5")
+
+    def test_schema_donor_is_richest_newest(self):
+        astra = {"slug": "gpt-6-astra", "k1": 1, "k2": 2, "k3": 3}
+        gpt55 = {"slug": "gpt-5.5", "k1": 1}
+        self.assertEqual(pick_schema_donor([astra, gpt55])["slug"], "gpt-6-astra")
+
+    def test_fill_unknown_keys_skips_tool_mode(self):
+        entry = {"slug": "grok-4.6", "shell_type": "unified_exec"}
+        donor = {
+            "slug": "gpt-6-astra",
+            "tool_mode": "code_mode_only",
+            "future_flag": True,
+            "base_instructions": "you are gpt-6",
+        }
+        fill_unknown_schema_keys(entry, donor)
+        self.assertTrue(entry["future_flag"])
+        self.assertNotIn("tool_mode", entry)
+        self.assertNotIn("base_instructions", entry)
+
+    def test_synthesize_keeps_direct_tools_and_picks_up_future_keys(self):
+        skeleton = {
+            "slug": "gpt-5.5",
+            "include_skills_usage_instructions": True,
+            "shell_type": "unified_exec",
+            "apply_patch_tool_type": "freeform",
+        }
+        donor = {
+            "slug": "gpt-6-astra",
+            "tool_mode": "code_mode_only",
+            "include_skills_usage_instructions": False,
+            "future_catalog_field": {"v": 1},
+        }
+        entry = synthesize_model_entry(
+            "grok-4.6",
+            context_window=300000,
+            reasoning_levels=["low", "medium"],
+            default_reasoning="medium",
+            input_modalities=["text"],
+            skeleton=skeleton,
+            schema_donor=donor,
+        )
+        self.assertEqual(entry["slug"], "grok-4.6")
+        self.assertNotEqual(entry.get("tool_mode"), "code_mode_only")
+        self.assertTrue(entry["include_skills_usage_instructions"])
+        self.assertEqual(entry["future_catalog_field"], {"v": 1})
 
 
 class DumpBundledCatalogTests(unittest.TestCase):
@@ -464,11 +556,82 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
             self.assertEqual(grok["context_window"], 300000)
             self.assertEqual(grok.get("shell_type"), "shell_command")
+            self.assertNotEqual(grok.get("tool_mode"), "code_mode_only")
+            self.assertTrue(grok.get("include_skills_usage_instructions"))
+            self.assertTrue(grok.get("include_plugin_usage_instructions"))
+            self.assertEqual(grok.get("apply_patch_tool_type"), "freeform")
             self.assertEqual(
                 [item["effort"] for item in grok["supported_reasoning_levels"]],
                 ["low", "medium", "high", "xhigh"],
             )
             self.assertIn("cloned from:          (synthesized)", result.stdout)
+
+    def test_synthesize_does_not_inherit_astra_code_mode_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "codex-home"
+            home.mkdir()
+            bindir = root / "bin"
+            write_fake_codex(
+                bindir,
+                [
+                    {
+                        "slug": "gpt-6-astra",
+                        "display_name": "Astra",
+                        "context_window": 272000,
+                        "tool_mode": "code_mode_only",
+                        "include_skills_usage_instructions": False,
+                        "include_plugin_usage_instructions": False,
+                        "include_apps_usage_instructions": False,
+                        "apply_patch_tool_type": "freeform",
+                        "shell_type": "unified_exec",
+                    },
+                    {
+                        "slug": "gpt-5.5",
+                        "display_name": "GPT-5.5",
+                        "context_window": 272000,
+                        "include_skills_usage_instructions": True,
+                        "include_plugin_usage_instructions": True,
+                        "include_apps_usage_instructions": True,
+                        "apply_patch_tool_type": "freeform",
+                        "shell_type": "unified_exec",
+                    },
+                ],
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+            env["CODEX_HOME"] = str(home)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "adjust_context_window.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--profile",
+                    "yjwd-grok",
+                    "--bootstrap-bundled",
+                    "--from-cache",
+                    "--context-window",
+                    "300000",
+                    "--yes",
+                    "--codex-home",
+                    str(home),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
+            grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+            astra = next(item for item in catalog["models"] if item["slug"] == "gpt-6-astra")
+            self.assertEqual(astra.get("tool_mode"), "code_mode_only")
+            self.assertNotEqual(grok.get("tool_mode"), "code_mode_only")
+            self.assertTrue(grok.get("include_skills_usage_instructions"))
+            self.assertTrue(grok.get("include_plugin_usage_instructions"))
+            self.assertEqual(grok.get("shell_type"), "unified_exec")
+            self.assertEqual(grok.get("apply_patch_tool_type"), "freeform")
 
     def test_reserved_models_json_is_migrated(self):
         import adjust_context_window as mod

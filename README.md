@@ -16,6 +16,7 @@ Python 脚本跨平台。跑完后会按当前 OS 打印后续命令：Unix shel
 | `references/template.config.toml` | profile 模板（含 Unix / PowerShell `auth.command`） |
 | `references/workflow.md` | 完整接入顺序 |
 | `references/catalog-source.md` | `models.json` 从哪来（本机 bundled，不是下载 OpenAI） |
+| `references/model-catalog-json.md` | `model_catalog_json` 怎么读：字段主次、工具坑、升级兼容 |
 | `references/context-window-guide.md` | 窗口如何被目录钳制 |
 | `references/常见陷阱.md` | 改错文件 / slug / 安装器 |
 | `references/codex-sandbox-permissions.md` | Codex 沙箱 / 审批：CLI 与 config.toml |
