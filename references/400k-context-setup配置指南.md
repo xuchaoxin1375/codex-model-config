@@ -86,7 +86,7 @@ requires_openai_auth = true
         { "effort": "xhigh", "description": "极高强度思考（DeepSeek 映射为 high）" },
         { "effort": "max", "description": "最大强度思考" }
       ],
-      "shell_type": "default",
+      "shell_type": "unified_exec",
       "visibility": "list",
       "supported_in_api": true,
       "priority": 99,
@@ -104,7 +104,7 @@ requires_openai_auth = true
       "default_reasoning_summary": "none",
       "support_verbosity": false,
       "default_verbosity": null,
-      "apply_patch_tool_type": null,
+      "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text",
       "truncation_policy": { "mode": "bytes", "limit": 10000 },
       "supports_image_detail_original": true,
@@ -135,6 +135,8 @@ requires_openai_auth = true
 - `effective_context_window_percent = 100`：避免默认 95% 把 400000 再降为 380000。
 - `auto_compact_token_limit = null`：实际压缩阈值由 `config.toml` 的 360000 控制，并会被限制为 400000 的 90%，最终正好是 360000。
 - `supported_reasoning_levels`：Codex UI 中“思考深度”的可选项；`default_reasoning_level` 是未手动选择时使用的默认档位。
+- `apply_patch_tool_type = "freeform"`、`shell_type = "unified_exec"`：让 Codex 发给模型 `apply_patch`，而不是用 Python 整文件重写。缓存/旧示例里的 `null` / `default` 不要照抄。
+- `support_verbosity` / `default_verbosity`：本示例为 `false` / `null`。DeepSeek 官方 Responses 文档写 `verbosity` 可传入但不生效；安装器目录里的 `true`/`low` 只是协议兼容。不要据此给 Grok 开 verbosity。Grok 官方未文档化 `text.verbosity`，应保持 `false` / `null`。
 
 注意：`model_catalog_json` 会替换内置模型目录。若还需要 OpenAI 内置模型，请使用与当前 Codex 版本匹配的完整 `models.json`，再把上面的模型对象追加到 `models` 数组中，不要直接覆盖为只有 DeepSeek 的版本。
 

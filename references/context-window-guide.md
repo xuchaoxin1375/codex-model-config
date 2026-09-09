@@ -98,7 +98,7 @@ model_catalog_json = "/home/<user>/.codex/models.json"
 
 ## 目录 slug
 
-目录 `slug` 必须和 TOML 的 `model` 值完全一致。缓存里的 `x-ai/grok-4.6` 不会抬高 `model = "grok-4.6"` 的窗口。先克隆对象，再把 `slug` 改成 TOML 里的值。
+目录 `slug` 必须和 TOML 的 `model` 值完全一致。缓存里的 `x-ai/grok-4.6` 不会抬高 `model = "grok-4.6"` 的窗口。先克隆对象，再把 `slug` 改成 TOML 里的值。克隆后若 `apply_patch_tool_type` 为空，一般改成 `"freeform"`，`shell_type` 为空或 `default` 时改成 `"unified_exec"`；这与窗口无关。Grok 若 patch 调用全失败则保持 `null`，不要改 `web_search_tool_type`。见 [常见陷阱.md](常见陷阱.md)。
 
 如果还没有 `models.json`，先从本机引导一份完整目录（不需要外网或代理）：
 
@@ -124,7 +124,7 @@ codex -c model_catalog_json='"/home/<user>/.codex/models.json"' debug models > /
 把 JSON 重定向到文件再查询。不要把 `codex debug models` 管道进 Python heredoc，heredoc 会吃掉 stdin。
 
 ```bash
-python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/codex-models-debug.json").read_text()); m=next(x for x in data["models"] if x["slug"]=="grok-4.6"); print({k:m.get(k) for k in ["slug","context_window","max_context_window","effective_context_window_percent"]})'
+python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/codex-models-debug.json").read_text()); m=next(x for x in data["models"] if x["slug"]=="grok-4.6"); print({k:m.get(k) for k in ["slug","context_window","max_context_window","effective_context_window_percent","apply_patch_tool_type","shell_type"]})'
 ```
 
 VS Code 要用新的 app-server 进程，并检查 `model/list`。测试前先重载窗口：

@@ -223,6 +223,40 @@ class ToolCapableSkeletonTests(unittest.TestCase):
         self.assertEqual(entry["future_catalog_field"], {"v": 1})
 
 
+class EnsureRequiredModelFieldsTests(unittest.TestCase):
+    def test_empty_tools_use_codex_native_edits(self):
+        import adjust_context_window as mod
+
+        out = mod.ensure_required_model_fields(
+            {"slug": "grok-4.6", "apply_patch_tool_type": None, "shell_type": "default"}
+        )
+        self.assertEqual(out["apply_patch_tool_type"], "freeform")
+        self.assertEqual(out["shell_type"], "unified_exec")
+
+    def test_existing_gpt_tools_are_kept(self):
+        import adjust_context_window as mod
+
+        out = mod.ensure_required_model_fields(
+            {
+                "slug": "gpt-5.6-sol",
+                "apply_patch_tool_type": "freeform",
+                "shell_type": "unified_exec",
+            }
+        )
+        self.assertEqual(out["apply_patch_tool_type"], "freeform")
+        self.assertEqual(out["shell_type"], "unified_exec")
+
+    def test_skeleton_shell_type_is_inherited_when_missing(self):
+        import adjust_context_window as mod
+
+        out = mod.ensure_required_model_fields(
+            {"slug": "grok-4.6"},
+            {"shell_type": "shell_command", "apply_patch_tool_type": "freeform"},
+        )
+        self.assertEqual(out["shell_type"], "shell_command")
+        self.assertEqual(out["apply_patch_tool_type"], "freeform")
+
+
 class DumpBundledCatalogTests(unittest.TestCase):
     def test_writes_utf8_catalog_without_text_true(self):
         payload = json.dumps(
@@ -555,7 +589,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
             grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
             self.assertEqual(grok["context_window"], 300000)
-            self.assertEqual(grok.get("shell_type"), "shell_command")
+            self.assertEqual(grok.get("shell_type"), "unified_exec")
             self.assertNotEqual(grok.get("tool_mode"), "code_mode_only")
             self.assertTrue(grok.get("include_skills_usage_instructions"))
             self.assertTrue(grok.get("include_plugin_usage_instructions"))
@@ -680,6 +714,7 @@ class AdjustCliIntegrationTests(unittest.TestCase):
             grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
             self.assertEqual(grok["context_window"], 300000)
             self.assertEqual(grok.get("shell_type"), "shell_command")
+            self.assertEqual(grok.get("apply_patch_tool_type"), "freeform")
             # Codex-reserved file is left alone
             original = json.loads((home / "models.json").read_text(encoding="utf-8"))
             self.assertEqual(original["models"][0]["slug"], "gpt-5.5")

@@ -62,10 +62,11 @@ codex debug models --bundled > ~/.codex/yjwd-grok-models.json
 3. `~/.codex/models_cache.json` 里精确匹配，或唯一的 `*/slug` 后缀匹配
 4. 仍没有则从 bundled 里选一条**直连工具**骨架（优先 `include_skills_usage_instructions=true` 且没有 `tool_mode=code_mode_only`，通常是 `gpt-5.5`），不要用 bundled 第一行的 `gpt-6-astra`
 5. 克隆后把 `slug` 改成 TOML 里的 `model` 值；合成条目会去掉 `code_mode_only`，并打开 skills/plugin/apps 说明和 `apply_patch`
+6. 一般把 `apply_patch_tool_type` 设为 `"freeform"`，`shell_type` 为空或 `default` 时改 `"unified_exec"`，不要沿用条目里的 `null` / `default`。Grok 若实测 `apply_patch` 全失败，该 slug 改回 `null`
 
 `code_mode_only` 会把 shell / apply_patch / MCP 收到 code mode 嵌套工具里。第三方模型（如 `grok-4.6`）往往不会走 code mode，表现就是「很多工具调不了」。不配 `model_catalog_json` 时未知 slug 走 Codex 默认直连工具，所以工具反而正常。
 
-`models_cache.json` 是 Codex 用过的模型缓存，适合当模板，但 slug 常常带供应商前缀。例如缓存里是 `x-ai/grok-4.6`，而 TOML 是 `model = "grok-4.6"`，必须把目录 `slug` 改成后者，否则窗口和显示名都不会作用到正在用的模型。
+`models_cache.json` 是 Codex 用过的模型缓存，适合当模板，但 slug 常常带供应商前缀。例如缓存里是 `x-ai/grok-4.6`，而 TOML 是 `model = "grok-4.6"`，必须把目录 `slug` 改成后者，否则窗口和显示名都不会作用到正在用的模型。能力标志不同，不要抄厂商字段。
 
 ### 4. 把路径写进哪份 TOML
 

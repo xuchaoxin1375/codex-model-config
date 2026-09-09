@@ -18,7 +18,7 @@ Python 脚本跨平台。跑完后会按当前 OS 打印后续命令：Unix shel
 | `references/catalog-source.md` | `models.json` 从哪来（本机 bundled，不是下载 OpenAI） |
 | `references/model-catalog-json.md` | `model_catalog_json` 怎么读：字段主次、工具坑、升级兼容 |
 | `references/context-window-guide.md` | 窗口如何被目录钳制 |
-| `references/常见陷阱.md` | 改错文件 / slug / 安装器 |
+| `references/常见陷阱.md` | 改错文件 / slug / 安装器 / Grok 的 verbosity 与 apply_patch 例外 |
 | `references/codex-sandbox-permissions.md` | Codex 沙箱 / 审批：CLI 与 config.toml |
 | `references/400k-context-setup配置指南.md` | DeepSeek 400K 已验证示例，不是唯一目标 |
 
@@ -89,6 +89,14 @@ python scripts\adjust_context_window.py --model grok-4.6 --profile yjwd-grok --b
 | 供应商安装器 | 不要 `curl \| bash` | 不要 `irm \| iex` |
 
 ## 安装
+
+将仓库(skill目录)clone到对应的agents目录下,`.agents`可以替换为你的harness配置目录,例如`.codex`
+
+```bash
+
+mkdir -pv ~/.agents/skills/ 
+git clone https://github.com/xuchaoxin1375/codex-model-config.git ~/.agents/skills/codex-model-config
+```
 
 把本目录放到 Codex skills 下（目录名即 skill 名）：
 

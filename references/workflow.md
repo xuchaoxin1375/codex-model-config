@@ -34,6 +34,7 @@ coding agent 配指定模型时，**先联网查官方文档，再写配置**。
 - `base_url`、`wire_api`（`responses` 或 `chat`）
 - 上下文窗口（token）
 - 思考/推理档位：官方接受哪些 effort，默认档，有没有 `max`
+- `text.verbosity`：官方是否文档化该参数；没有就不要把 `support_verbosity` 设为 `true`
 
 ### 来源优先级
 
@@ -227,8 +228,9 @@ codex debug models --bundled > ~/.codex/models.json
 3. `~/.codex/models_cache.json` 里精确匹配，或唯一的 `*/slug` 后缀匹配
 4. 仍没有则克隆 bundled 里直连工具骨架（优先 `gpt-5.5`），不要用第一行 `gpt-6-astra` 的 `code_mode_only`
 5. 克隆后把 `slug` 改成 TOML 里的 `model` 值；合成条目会打开 skills/plugin/apps 说明
+6. 若 `apply_patch_tool_type` 为 `null`/`none`、或 `shell_type` 为 `default`，一般改成 `"freeform"` / `"unified_exec"`。Grok 例外：若 `apply_patch` 调用后校验失败并退回 Python，该 slug 保持 `null`。见 [常见陷阱.md](常见陷阱.md)
 
-不要手写一份完整 DeepSeek/OpenAI 目录。保留克隆来的其余字段，只改当前任务需要的键。第三方模型不要带着 `tool_mode=code_mode_only`，否则初始工具列表会被收进 code mode。
+不要手写一份完整 DeepSeek/OpenAI 目录。保留克隆来的其余字段，只改当前任务需要的键。第三方模型不要带着 `tool_mode=code_mode_only`，否则初始工具列表会被收进 code mode。一般模型缺省 `apply_patch_tool_type` 时，自动补上并不等于会按 GPT 格式打补丁，只是打开 Codex 的改文件工具。Grok 当前相反：开 freeform 可能负效率。
 
 常改字段：
 
@@ -243,8 +245,20 @@ codex debug models --bundled > ~/.codex/models.json
 | `supported_reasoning_levels` | UI 能选的思考档；由 `--reasoning-levels` 写入，例如 `low,high,xhigh` |
 | `default_reasoning_level` | 未手动选择时的目录默认档；由 `--default-reasoning-level` 写入 |
 | `input_modalities` | 含 `image` 时 Codex 才认为该模型能收图 |
+| `apply_patch_tool_type` | `"freeform"` 才会发给模型 `apply_patch`；`null` 时模型只能用 Python/shell 整文件重写。Grok 若 patch 全失败则保持 `null` |
+| `shell_type` | 空或 `"default"` 时改 `"unified_exec"`（与 GPT 目录一致）；缺字段也可能让 Codex 拒绝启动。Grok 也不要改回 `default` |
+| `web_search_tool_type` | Grok 保持 `"text"`，不要抄 GPT 的 `"text_and_image"` |
+| `support_verbosity` | `true` 时 Codex 会发 `text.verbosity`；只在该家官方文档化该参数时才开 |
+| `default_verbosity` | 目录默认 verbosity。不支持时保持 `null`，不要从别家目录抄 `"low"` |
 
 视觉模型：目录里没有 `image` 时，即使用户能贴图，Codex 也不会按视觉模型处理。
+
+改文件工具：GPT 目录是 `apply_patch_tool_type = "freeform"`。很多第三方条目为 `null`，Codex 不会暴露 `apply_patch`，模型会用 Python/`cat` 把整文件一次写完，CLI/IDE 也不会出现 GPT 那种只含 patch 的改文件摘要。打开工具不表示模型已经按 GPT 的 patch 格式训练过，只是让 Codex 走同一条落地路径。`adjust_context_window.py` 写入目录时会把空值补成 `freeform` / `unified_exec`。
+
+Grok 例外：本机实测 freeform 时模型会发 `apply_patch`，但校验常失败（`The first line of the patch must be '*** Begin Patch'`），然后仍退回 Python。此时应把该 slug 的 `apply_patch_tool_type` 改回 `null`，少绕失败轮次；`shell_type` 仍为 `"unified_exec"`，`web_search_tool_type` 仍为 `"text"`。不要整份目录回滚。细节见 [常见陷阱.md](常见陷阱.md)。
+
+verbosity：`support_verbosity: true` 只让 Codex 发 `text.verbosity`，不表示模型会听话。这是 GPT-5 家族 Responses API 的能力。Grok 4.6 官方只文档化 `reasoning_effort`，没有 `verbosity`，保持 `false` / `null`。DeepSeek 官方写 verbosity 可传入但不生效，其安装器目录里的 `true`/`low` 是协议兼容，不要抄给 Grok。细节见 [常见陷阱.md](常见陷阱.md)。
+
 
 ## 该改哪份文件
 
@@ -285,7 +299,7 @@ codex -c model_catalog_json='"/home/<user>/.codex/models.json"' debug models > /
 把 JSON 重定向到文件再查。不要把 `codex debug models` 管道进 Python heredoc，heredoc 会吃掉 stdin。
 
 ```bash
-python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/codex-models-debug.json").read_text()); m=next(x for x in data["models"] if x["slug"]=="<slug>"); print({k:m.get(k) for k in ["slug","display_name","context_window","max_context_window","effective_context_window_percent","input_modalities"]})'
+python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/codex-models-debug.json").read_text()); m=next(x for x in data["models"] if x["slug"]=="<slug>"); print({k:m.get(k) for k in ["slug","display_name","context_window","max_context_window","effective_context_window_percent","input_modalities","apply_patch_tool_type","shell_type"]})'
 ```
 
 实际会话：

@@ -12,6 +12,9 @@ If --from-cache is set but models_cache.json is missing, warn and synthesize
 a catalog entry from the CLI/skill defaults instead of aborting.
 Synthesized third-party rows clone a tool-capable bundled model (skills on,
 not gpt-6-astra `code_mode_only`) unless --clone-from is explicit.
+When apply_patch_tool_type is empty or shell_type is default/missing, fill
+apply_patch_tool_type=freeform and shell_type=unified_exec so Codex exposes
+native file edits instead of Python/shell rewrites.
 Backups are written beside the edited files.
 """
 
@@ -113,10 +116,13 @@ def cleaned_path() -> str:
 def resolve_codex() -> str:
     path = cleaned_path()
     names = ("codex.exe", "codex.cmd", "codex") if os.name == "nt" else ("codex",)
-    for name in names:
-        found = shutil.which(name, path=path)
-        if found:
-            return found
+    for directory in path.split(os.pathsep):
+        if not directory:
+            continue
+        for name in names:
+            candidate = Path(directory) / name
+            if candidate.is_file():
+                return str(candidate)
     raise RuntimeError(
         "`codex` executable not found on PATH. "
         "In PowerShell, `Get-Command codex` may be a .ps1 shim that Python cannot launch. "
@@ -255,12 +261,25 @@ def resolve_catalog_path(
     return dedicated, None
 
 
+def _usable_tool_value(value: Any, *, empty: tuple[Any, ...]) -> Any | None:
+    if value in empty:
+        return None
+    return value
+
+
 def ensure_required_model_fields(
     model: dict[str, Any],
     skeleton: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if not model.get("shell_type"):
-        model["shell_type"] = (skeleton or {}).get("shell_type") or "shell_command"
+    skeleton = skeleton or {}
+    patch_empty = (None, "", "none")
+    shell_empty = (None, "", "default")
+    if _usable_tool_value(model.get("apply_patch_tool_type"), empty=patch_empty) is None:
+        inherited = _usable_tool_value(skeleton.get("apply_patch_tool_type"), empty=patch_empty)
+        model["apply_patch_tool_type"] = inherited or "freeform"
+    if _usable_tool_value(model.get("shell_type"), empty=shell_empty) is None:
+        inherited = _usable_tool_value(skeleton.get("shell_type"), empty=shell_empty)
+        model["shell_type"] = inherited or "unified_exec"
     return model
 
 
