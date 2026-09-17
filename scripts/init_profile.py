@@ -26,6 +26,7 @@ from model_meta import (
     compact_limit_for,
     install_as_default_config,
     load_skill_defaults,
+    parse_kv_pairs,
     set_top_level_key,
 )
 
@@ -172,6 +173,67 @@ def render_template(
     return text
 
 
+def set_provider_key(text: str, provider: str, key: str, value: str) -> str:
+    """Set/replace `key = value` inside `[model_providers.<provider>]` section."""
+    lines = text.splitlines(keepends=True)
+    header = f"[model_providers.{provider}]"
+    start = next(
+        (i for i, line in enumerate(lines) if line.strip() == header), None
+    )
+    if start is None:
+        raise ValueError(f"missing section {header}")
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].lstrip().startswith("["):
+            end = i
+            break
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    for i in range(start + 1, end):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("#"):
+            continue
+        if pattern.match(lines[i]):
+            lines[i] = f"{key} = {value}\n"
+            return "".join(lines)
+    lines.insert(end, f"{key} = {value}\n")
+    return "".join(lines)
+
+
+def toml_table(mapping: dict[str, str]) -> str:
+    return "{ " + ", ".join(f"{json.dumps(k)} = {json.dumps(v)}" for k, v in mapping.items()) + " }"
+
+
+def apply_provider_tuning(
+    text: str,
+    provider: str,
+    *,
+    query_params: dict[str, str],
+    http_headers: dict[str, str],
+    env_http_headers: dict[str, str],
+    request_max_retries: int | None,
+    stream_max_retries: int | None,
+    stream_idle_timeout_ms: int | None,
+    supports_websockets: bool | None,
+) -> str:
+    if query_params:
+        text = set_provider_key(text, provider, "query_params", toml_table(query_params))
+    if http_headers:
+        text = set_provider_key(text, provider, "http_headers", toml_table(http_headers))
+    if env_http_headers:
+        text = set_provider_key(text, provider, "env_http_headers", toml_table(env_http_headers))
+    if request_max_retries is not None:
+        text = set_provider_key(text, provider, "request_max_retries", str(request_max_retries))
+    if stream_max_retries is not None:
+        text = set_provider_key(text, provider, "stream_max_retries", str(stream_max_retries))
+    if stream_idle_timeout_ms is not None:
+        text = set_provider_key(text, provider, "stream_idle_timeout_ms", str(stream_idle_timeout_ms))
+    if supports_websockets is not None:
+        text = set_provider_key(
+            text, provider, "supports_websockets", "true" if supports_websockets else "false"
+        )
+    return text
+
+
 def validate_provider(provider: str) -> None:
     if not PROVIDER_RE.fullmatch(provider):
         raise ValueError(
@@ -196,7 +258,7 @@ def parse_args() -> argparse.ArgumentParser:
         "--wire-api",
         choices=WIRE_APIS,
         default="responses",
-        help="provider wire_api; default: responses",
+        help="provider wire_api; only responses is supported since 2026-02",
     )
     parser.add_argument(
         "--reasoning-effort",
@@ -249,6 +311,26 @@ def parse_args() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="overwrite an existing profile")
     parser.add_argument(
+        "--query-params",
+        default=None,
+        help="provider query_params as k=v,k=v, e.g. api-version=2025-04-01-preview",
+    )
+    parser.add_argument(
+        "--http-headers",
+        default=None,
+        help="static provider http_headers as k=v,k=v",
+    )
+    parser.add_argument(
+        "--env-http-headers",
+        default=None,
+        help="provider env_http_headers as HeaderName=ENV_VAR,HeaderName=ENV_VAR",
+    )
+    parser.add_argument("--request-max-retries", type=int, default=None)
+    parser.add_argument("--stream-max-retries", type=int, default=None)
+    parser.add_argument("--stream-idle-timeout-ms", type=int, default=None)
+    parser.add_argument("--supports-websockets", action="store_true", default=None)
+    parser.add_argument("--no-supports-websockets", action="store_true")
+    parser.add_argument(
         "--as-default",
         action="store_true",
         help="backup ~/.codex/config.toml and copy this profile over it",
@@ -282,6 +364,25 @@ def main() -> int:
 
     try:
         template = args.template.read_text(encoding="utf-8")
+        try:
+            query_params = parse_kv_pairs(args.query_params, flag="--query-params")
+            http_headers = parse_kv_pairs(args.http_headers, flag="--http-headers")
+            env_http_headers = parse_kv_pairs(args.env_http_headers, flag="--env-http-headers")
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.request_max_retries is not None and args.request_max_retries < 0:
+            parser.error("--request-max-retries must be >= 0")
+        if args.stream_max_retries is not None and args.stream_max_retries < 0:
+            parser.error("--stream-max-retries must be >= 0")
+        if args.stream_idle_timeout_ms is not None and args.stream_idle_timeout_ms <= 0:
+            parser.error("--stream-idle-timeout-ms must be positive")
+        if args.supports_websockets and args.no_supports_websockets:
+            parser.error("use either --supports-websockets or --no-supports-websockets")
+        supports_websockets: bool | None = None
+        if args.supports_websockets:
+            supports_websockets = True
+        elif args.no_supports_websockets:
+            supports_websockets = False
         rendered = render_template(
             template,
             provider=provider,
@@ -293,6 +394,17 @@ def main() -> int:
         )
         rendered = set_top_level_key(rendered, "model_context_window", context_window)
         rendered = set_top_level_key(rendered, "model_auto_compact_token_limit", compact_limit)
+        rendered = apply_provider_tuning(
+            rendered,
+            provider,
+            query_params=query_params,
+            http_headers=http_headers,
+            env_http_headers=env_http_headers,
+            request_max_retries=args.request_max_retries,
+            stream_max_retries=args.stream_max_retries,
+            stream_idle_timeout_ms=args.stream_idle_timeout_ms,
+            supports_websockets=supports_websockets,
+        )
         tomllib.loads(rendered)
     except FileNotFoundError:
         parser.error(f"template not found: {args.template}")

@@ -37,7 +37,9 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shell_hints import catalog_posix, print_next_debug_models, python_cmd
 from model_meta import (
+    APPLY_PATCH_TYPES,
     REASONING_EFFORTS,
+    WEB_SEARCH_TYPES,
     WIRE_APIS,
     build_reasoning_levels,
     compact_limit_for,
@@ -374,24 +376,40 @@ def fill_unknown_schema_keys(
     return entry
 
 
-def apply_third_party_tool_defaults(model: dict[str, Any]) -> dict[str, Any]:
+def apply_third_party_tool_defaults(
+    model: dict[str, Any],
+    *,
+    apply_patch_type: str | None = None,
+    web_search_type: str | None = None,
+    supports_search_tool: bool | None = None,
+) -> dict[str, Any]:
     """Keep custom models on direct tools instead of nested code-mode-only tools.
 
     Codex treats omitted tool_mode as feature-flag fallback (direct tools unless
     code mode is enabled). `code_mode_only` hides shell/apply_patch/MCP from the
     initial tool list. `include_skills_usage_instructions` defaults to false.
+    web_search default is `text` (least surprise); pass text_and_image only when
+    the supplier documents image-backed search.
     """
     if _tool_mode(model) == "code_mode_only":
         model.pop("tool_mode", None)
     model["include_skills_usage_instructions"] = True
     model["include_plugin_usage_instructions"] = True
     model["include_apps_usage_instructions"] = True
-    if not model.get("apply_patch_tool_type"):
+    if apply_patch_type == "null":
+        model["apply_patch_tool_type"] = None
+    elif apply_patch_type == "freeform":
         model["apply_patch_tool_type"] = "freeform"
-    if "supports_search_tool" not in model:
+    elif not model.get("apply_patch_tool_type"):
+        model["apply_patch_tool_type"] = "freeform"
+    if supports_search_tool is not None:
+        model["supports_search_tool"] = supports_search_tool
+    elif "supports_search_tool" not in model:
         model["supports_search_tool"] = True
-    if not model.get("web_search_tool_type"):
-        model["web_search_tool_type"] = "text_and_image"
+    if web_search_type:
+        model["web_search_tool_type"] = web_search_type
+    elif not model.get("web_search_tool_type"):
+        model["web_search_tool_type"] = "text"
     if not model.get("visibility"):
         model["visibility"] = "list"
     if "supported_in_api" not in model:
@@ -408,6 +426,9 @@ def synthesize_model_entry(
     input_modalities: list[str],
     skeleton: dict[str, Any] | None = None,
     schema_donor: dict[str, Any] | None = None,
+    apply_patch_type: str | None = None,
+    web_search_type: str | None = None,
+    supports_search_tool: bool | None = None,
 ) -> dict[str, Any]:
     entry = copy.deepcopy(skeleton) if skeleton else {}
     fill_unknown_schema_keys(entry, schema_donor)
@@ -418,7 +439,12 @@ def synthesize_model_entry(
     entry["supported_reasoning_levels"] = build_reasoning_levels(reasoning_levels, entry)
     entry["default_reasoning_level"] = default_reasoning
     entry["input_modalities"] = list(input_modalities)
-    apply_third_party_tool_defaults(entry)
+    apply_third_party_tool_defaults(
+        entry,
+        apply_patch_type=apply_patch_type,
+        web_search_type=web_search_type,
+        supports_search_tool=supports_search_tool,
+    )
     return ensure_required_model_fields(entry, skeleton)
 
 
@@ -547,7 +573,7 @@ def main() -> int:
         "--wire-api",
         choices=WIRE_APIS,
         default="responses",
-        help="provider wire_api when creating a missing --profile; default: responses",
+        help="provider wire_api when creating a missing --profile; only responses is supported",
     )
     parser.add_argument(
         "--catalog",
@@ -587,8 +613,22 @@ def main() -> int:
     )
     parser.add_argument(
         "--input-modalities",
-        help="comma-separated catalog input_modalities, e.g. text,image",
+        help="comma-separated catalog input_modalities, e.g. text,image (allowed: text,image,audio,video)",
     )
+    parser.add_argument(
+        "--apply-patch-type",
+        choices=APPLY_PATCH_TYPES,
+        default=None,
+        help="catalog apply_patch_tool_type override; null keeps Grok on shell/Python",
+    )
+    parser.add_argument(
+        "--web-search-type",
+        choices=WEB_SEARCH_TYPES,
+        default=None,
+        help="catalog web_search_tool_type override; default keeps skeleton or text",
+    )
+    parser.add_argument("--supports-search-tool", action="store_true", default=None)
+    parser.add_argument("--no-supports-search-tool", action="store_true")
     parser.add_argument("--force", action="store_true", help="allow editing a TOML whose model= does not match --model")
     parser.add_argument(
         "--as-default",
@@ -639,6 +679,13 @@ def main() -> int:
         default_reasoning = reasoning_levels[0]
     if reasoning_effort not in reasoning_levels:
         parser.error("--reasoning-effort must be in --reasoning-levels")
+    if args.supports_search_tool and args.no_supports_search_tool:
+        parser.error("use either --supports-search-tool or --no-supports-search-tool")
+    supports_search_tool: bool | None = None
+    if args.supports_search_tool:
+        supports_search_tool = True
+    elif args.no_supports_search_tool:
+        supports_search_tool = False
     using_defaults = (
         args.defaults
         or args.context_window is None
@@ -763,6 +810,9 @@ def main() -> int:
                     input_modalities=modalities,
                     skeleton=skeleton,
                     schema_donor=pick_schema_donor(models),
+                    apply_patch_type=args.apply_patch_type,
+                    web_search_type=args.web_search_type,
+                    supports_search_tool=supports_search_tool,
                 ),
                 "(synthesized)",
             )
@@ -819,8 +869,21 @@ def main() -> int:
         model["input_modalities"] = input_modalities
     if "comp_hash" in model:
         model["comp_hash"] = f"{args.model}-{context_window}"
+    if args.web_search_type:
+        model["web_search_tool_type"] = args.web_search_type
+    if supports_search_tool is not None:
+        model["supports_search_tool"] = supports_search_tool
+    if args.apply_patch_type == "null":
+        model["apply_patch_tool_type"] = None
+    elif args.apply_patch_type == "freeform":
+        model["apply_patch_tool_type"] = "freeform"
     if not args.clone_from:
-        apply_third_party_tool_defaults(model)
+        apply_third_party_tool_defaults(
+            model,
+            apply_patch_type=args.apply_patch_type,
+            web_search_type=args.web_search_type,
+            supports_search_tool=supports_search_tool,
+        )
     models[index] = ensure_required_model_fields(model, pick_tool_capable_skeleton(models))
     for offset, item in enumerate(models):
         if isinstance(item, dict):

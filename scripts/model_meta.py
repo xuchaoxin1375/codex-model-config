@@ -9,8 +9,14 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-WIRE_APIS = ("responses", "chat")
+WIRE_APIS = ("responses",)
 REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+# Catalog tool-preference enums (single source; docs must link here, not copy).
+# wire_api 只剩 responses（2026-02 起 chat 已移除，写 chat 直接启动失败）。
+APPLY_PATCH_TYPES = ("freeform", "null")
+WEB_SEARCH_TYPES = ("text", "text_and_image")
+INPUT_MODALITIES = ("text", "image", "audio", "video")
 
 SKILL_DEFAULTS_BEGIN = "# BEGIN skill.codex-model-config"
 SKILL_DEFAULTS_END = "# END skill.codex-model-config"
@@ -114,9 +120,30 @@ def parse_reasoning_levels(raw: str) -> list[str]:
 def parse_modalities(raw: str) -> list[str]:
     return parse_csv_tokens(
         raw,
-        allowed=("text", "image", "audio"),
+        allowed=INPUT_MODALITIES,
         flag="--input-modalities",
     )
+
+
+def parse_kv_pairs(raw: str | None, *, flag: str) -> dict[str, str]:
+    """Parse `k=v,k=v` (value may contain `=`; split on first `=`)."""
+    result: dict[str, str] = {}
+    if not raw:
+        return result
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise ValueError(f"{flag}: expected k=v, got {part!r}")
+        key, value = part.split("=", 1)
+        key, value = key.strip(), value.strip()
+        if not key or not value:
+            raise ValueError(f"{flag}: expected k=v, got {part!r}")
+        result[key] = value
+    if not result:
+        raise ValueError(f"{flag}: expected at least one k=v")
+    return result
 
 
 def build_reasoning_levels(

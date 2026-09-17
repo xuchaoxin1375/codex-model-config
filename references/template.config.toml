@@ -31,11 +31,10 @@ forced_login_method = "api"
 # 安全和权限配置
 ## cli_auth_credentials_store = "file" # auto,file,keyring
 
-# 默认的:workspace-write,读取整个电脑上的文件,但修改仅限当前 Workspace（打开的项目）
-## sandbox_mode = "workspace-write" # read-only,workspace-write,danger-full-access
-
-## 默认的询问策略是on-request,模型自己判断是否询问用户,untrusted,大部分危险操作都询问
-approval_policy = "never" # 永远不要弹确认框。如果权限允许：直接执行。如果权限不允许：立即失败。
+# 沙箱/审批不要写进提供方 profile（权限见 references/codex-sandbox-permissions.md）。
+# 需要时只改用户默认 config.toml 或本次 CLI 参数：
+# sandbox_mode = "workspace-write"
+# approval_policy = "on-request"
 
 # 模型配置
 model = "model-id" # 例如:gpt-5.6-luna
@@ -51,8 +50,17 @@ show_raw_agent_reasoning = true # 显示原始推理
 [model_providers.provider-id]
 name = "provider-id" 
 base_url = "" # 记得填写,否则提示builder error这类错误,更不可能配置成功.
-wire_api = "responses"
+wire_api = "responses" # 唯一合法值（2026-02 起 chat 已移除，写 chat 直接启动失败）
 requires_openai_auth = true # openai 风控时可能需要此配置,和其读取auth.json配置与否有关.(如果接入非openai模型,可以不配置)
+
+# 提供方调优（按需用 init_profile.py 参数写入，不要手写猜值）：
+# query_params = { api-version = "2025-04-01-preview" } # Azure 等需要
+# http_headers = { "X-Custom" = "value" }
+# env_http_headers = { "X-API-Key" = "LITELLM_API_KEY" }
+# request_max_retries = 4
+# stream_max_retries = 5
+# stream_idle_timeout_ms = 300000
+# supports_websockets = false
 
 # 按需设置下面的属性,这些配置在model_providers.<id>块下,不能单独移到前面去!
 ## 如果是主配置文件profile.toml,则下面的env_key可以不设置,可以通过配置.codex/auth.json中写入密钥代替,但是灵活度不高

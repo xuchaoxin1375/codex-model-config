@@ -56,19 +56,20 @@ bundled 一条大约 35–40 个键。第三方模型只需看下面几层；其
 | `context_window` / `max_context_window` | 目录声明的窗口；TOML 的 `model_context_window` 不能超过 `max` | 按官方或 skill 默认 `258400` |
 | `supported_reasoning_levels` | 选择器里能选哪些思考档 | `--reasoning-levels` 写入 |
 | `default_reasoning_level` | 没手选时的目录默认档 | 一般 `medium` |
+| `input_modalities` | 模型可收哪些输入；无 `image` 则不按视觉处理 | 默认 `text,image`；`--input-modalities` 覆盖，允许 `text,image,audio,video`（视频模型加 `video`） |
 
 ### 2. 工具能不能调（第三方最容易踩坑）
 
 | 字段 | 高 | 低 / 危险 | 说明 |
 |---|---|---|---|
-| `tool_mode` | 省略或 `direct` | `code_mode_only` | 省略时走客户端 feature flag（通常是直连工具）。`code_mode_only` 把 shell / apply_patch / MCP 收到 code mode 嵌套工具里；Grok 等第三方模型往往不会用，表现为「很多工具调不了」。 |
-| `apply_patch_tool_type` | `freeform` | 缺省 | 没有则可能不提供 apply_patch。 |
-| `include_skills_usage_instructions` | `true` | 缺省=`false` | 控制是否注入 skills 用法说明。 |
-| `include_plugin_usage_instructions` | `true` | 缺省=`false` | 插件说明。 |
-| `include_apps_usage_instructions` | `true` | `false` | 缺省反而是 `true`。 |
-| `supports_search_tool` | `true` | 缺省 | 是否暴露 web search。 |
-| `web_search_tool_type` | `text` / `text_and_image` | 缺省 | 搜索工具形态。 |
-| `experimental_supported_tools` | 按需 | 盲目照抄 `gpt-6-astra` | 例如 `clock`、`send_user_message_async`。新模型才有的实验工具，不认识的客户端会忽略。 |
+| `tool_mode` | 省略或 `direct` | `code_mode_only` | 省略走直连。`code_mode_only` 收起 shell/apply_patch/MCP；第三方常表现为工具消失。脚本默认去掉它（`--clone-from` 显式才保留）。 |
+| `apply_patch_tool_type` | `freeform` | 缺省/`null` | `null` 则无 apply_patch，只能整文件重写。Grok 实测全失败时该条用 `--apply-patch-type null` 保持 `null`。 |
+| `include_skills_usage_instructions` | `true` | 缺省=`false` | 脚本默认全开三套。 |
+| `include_plugin_usage_instructions` | `true` | 缺省=`false` | 同上。 |
+| `include_apps_usage_instructions` | `true` | `false` | 缺省反而是 `true`；脚本显式打开。 |
+| `supports_search_tool` | `true` | `false` | 是否暴露搜索；无搜索模型用 `--no-supports-search-tool`。 |
+| `web_search_tool_type` | `text`（默认）/`text_and_image` | 缺省 | 缺省脚本补 `text`；仅供应商文档化图片搜索才用 `text_and_image`（`--web-search-type`）。Grok 保持 `text`。 |
+| `experimental_supported_tools` | 按需 | 盲目照抄 `gpt-6-astra` | 新模型实验工具；未知键保留，不猜含义。 |
 
 本 skill 合成第三方条目时：克隆一条**直连工具**骨架（优先 `gpt-5.5` 这类），去掉 `code_mode_only`，并把三套 `include_*` 打开。显式 `--clone-from gpt-6-astra` 才会保留 code mode。
 
@@ -94,7 +95,7 @@ bundled 一条大约 35–40 个键。第三方模型只需看下面几层；其
 
 ### 6. 可以当透明字段
 
-`comp_hash`、`default_verbosity`、`support_verbosity`、`default_reasoning_summary`、`supports_image_detail_original`、`input_modalities`、`use_responses_lite`、`node_repl_*`、`model_specialty`。新版本 bundled 可能再多键；不认识的键**保留**，不要删。
+`comp_hash`、`default_verbosity`、`support_verbosity`、`default_reasoning_summary`、`supports_image_detail_original`、`use_responses_lite`、`node_repl_*`、`model_specialty`。新版本 bundled 可能再多键；不认识的键**保留**，不要删。`verbosity` 仅上游文档化才开，不跨供应商抄。
 
 ## Codex 升级后字段会变吗
 
