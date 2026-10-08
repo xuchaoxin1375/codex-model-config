@@ -16,3 +16,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Codex local artifact: may regenerate <skill>/agents/openai.yaml at runtime.
+# Keep it untracked; source of truth stays in SKILL.md.
+**/agents/openai.yaml
