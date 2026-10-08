@@ -139,3 +139,19 @@ codex --profile <name> exec --skip-git-repo-check -s read-only -c approval_polic
 切模型验证加 `-m <slug>`。返回 `unsupported_feature` / `tool type '...' is not supported` 即按 [tool-calling.md](tool-calling.md) 排障（通常是 `apply_patch` / `web_search` 被拒收）。
 
 收尾：重载 VS Code / 桌面端并开新对话；旧会话保留启动时的目录和窗口。
+
+## 4. 手写第三方配置静态检查（`check_profile.py`）
+
+只读不写。抓手写配置最常见的遗漏：空 `base_url`（回退 OpenAI）、模板占位符未替换、`wire_api` 非 `responses`、密钥进 TOML、目录 slug 对不上等。`debug models` 之前先跑它：
+
+```bash
+python3 scripts/check_profile.py --profile <id>
+python3 scripts/check_profile.py --file ~/.codex/<id>.config.toml --env-file ~/.config/models.env --strict
+```
+
+```powershell
+python scripts\check_profile.py --profile <id>
+python scripts\check_profile.py --file $env:USERPROFILE\.codex\<id>.config.toml --strict
+```
+
+退出码：0 无 ERROR（警告放行），1 有 ERROR（`--strict` 下警告也算），2 用法/文件错误；`--json` 出机器可读。字段语义与判定依据见 [model-catalog-json.md](model-catalog-json.md)，陷阱清单见 [常见陷阱.md](常见陷阱.md)。

@@ -1598,5 +1598,246 @@ class LiveCodexDumpTests(unittest.TestCase):
             json.loads(catalog.read_text(encoding="utf-8"))
 
 
+class CheckProfileTests(unittest.TestCase):
+    def _write(self, tmp: str, name: str, text: str) -> Path:
+        path = Path(tmp) / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _toml(self, *, provider="yjwd-grok", model="grok-4.6",
+              base_url="https://yujianwudi.net/v1", extra="", catalog=None):
+        text = (
+            f'model = "{model}"\n'
+            f'model_provider = "{provider}"\n'
+            "[model_providers." + provider + "]\n"
+            f'base_url = "{base_url}"\n'
+            'wire_api = "responses"\n'
+            'env_key = "YUJIANWUDI_GROK_API_KEY"\n'
+            + extra
+        )
+        if catalog is not None:
+            text = text.replace("[model_providers.",
+                                f'model_catalog_json = "{catalog}"\n[model_providers.', 1)
+        return text
+
+    def _codes(self, path: Path, *extra: str):
+        import check_profile as mod
+
+        argv = ["check_profile.py", "--file", str(path), "--no-env-check", *extra]
+        with mock.patch.object(sys, "argv", argv):
+            with mock.patch.object(sys, "stdout", new_callable=io.StringIO) as out:
+                rc = mod.main()
+        return rc, out.getvalue()
+
+    def test_empty_base_url_is_error(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "p.config.toml", self._toml(base_url=""))
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        codes = [f.code for f in findings if f.severity == mod.ERROR]
+        self.assertIn("E_BASE_URL_EMPTY", codes)
+
+    def test_openai_fallback_flagged_for_non_gpt(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "p.config.toml",
+                               self._toml(base_url="https://api.openai.com/v1"))
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        codes = [f.code for f in findings if f.severity == mod.ERROR]
+        self.assertIn("E_BASE_URL_OPENAI_FALLBACK", codes)
+
+    def test_openai_endpoint_ok_for_gpt(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "p.config.toml",
+                               self._toml(provider="gpt", model="gpt-5.5",
+                                          base_url="https://api.openai.com/v1"))
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        codes = [f.code for f in findings if f.severity == mod.ERROR]
+        self.assertNotIn("E_BASE_URL_OPENAI_FALLBACK", codes)
+
+    def test_template_placeholders_are_errors(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            text = (self._toml().replace("yjwd-grok", "provider-id")
+                    .replace("grok-4.6", "model-id")
+                    .replace('base_url = "https://yujianwudi.net/v1"', 'base_url = ""'))
+            path = self._write(tmp, "p.config.toml", text)
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            codes = {f.code for f in findings}
+            self.assertIn("E_PLACEHOLDER_PROVIDER", codes)
+            self.assertIn("E_PLACEHOLDER_MODEL", codes)
+            self.assertIn("E_BASE_URL_EMPTY", codes)
+            moved = self._write(tmp, "m.config.toml",
+                                self._toml().replace("[model_providers.yjwd-grok]",
+                                                     "[model_providers.other]"))
+            findings = mod.check_profile_file(moved, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            self.assertIn("E_PROVIDER_SECTION_MISSING",
+                          [f.code for f in findings if f.severity == mod.ERROR])
+
+    def test_wire_api_chat_is_error_missing_is_warning(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = self._write(tmp, "bad.config.toml",
+                              self._toml().replace('"responses"', '"chat"'))
+            findings = mod.check_profile_file(bad, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            self.assertIn("E_WIRE_API", [f.code for f in findings])
+            missing = self._write(tmp, "missing.config.toml",
+                                  self._toml().replace('wire_api = "responses"\n', ""))
+            findings = mod.check_profile_file(missing, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            self.assertIn("W_WIRE_API_MISSING", [f.code for f in findings])
+
+    def test_bearer_token_and_reserved_provider(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "p.config.toml",
+                               self._toml() + 'experimental_bearer_token = "sk-secret"\n')
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            self.assertIn("E_BEARER_TOKEN", [f.code for f in findings])
+            reserved = self._write(tmp, "r.config.toml", self._toml(provider="openai"))
+            findings = mod.check_profile_file(reserved, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            codes = [f.code for f in findings if f.severity == mod.ERROR]
+            self.assertIn("E_RESERVED_PROVIDER", codes)
+
+    def test_env_key_presence(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            envf = Path(tmp) / "models.env"
+            envf.write_text("YUJIANWUDI_GROK_API_KEY=dummy\n", encoding="utf-8")
+            path = self._write(tmp, "p.config.toml", self._toml())
+            with mock.patch.dict(os.environ, {"YUJIANWUDI_GROK_API_KEY": ""}):
+                findings = mod.check_profile_file(path, env_file=envf,
+                                                  check_env=True, catalog_override=None)
+                self.assertNotIn("W_ENV_KEY_MISSING", [f.code for f in findings])
+                findings = mod.check_profile_file(path, env_file=Path(tmp) / "absent.env",
+                                                  check_env=True, catalog_override=None)
+                self.assertIn("W_ENV_KEY_MISSING", [f.code for f in findings])
+            default = self._write(tmp, "d.config.toml",
+                                  self._toml().replace("YUJIANWUDI_GROK_API_KEY", "API_KEY"))
+            findings = mod.check_profile_file(default, env_file=envf,
+                                              check_env=False, catalog_override=None)
+            self.assertIn("W_ENV_KEY_DEFAULT", [f.code for f in findings])
+
+    def test_catalog_checks(self):
+        import check_profile as mod
+
+        catalog = {"models": [
+            {"slug": "grok-4.6", "shell_type": "unified_exec",
+             "tool_mode": "code_mode_only", "input_modalities": ["text", "video"],
+             "include_skills_usage_instructions": False,
+             "visibility": "hide", "context_window": 300000},
+        ]}
+        with tempfile.TemporaryDirectory() as tmp:
+            cat = self._write(tmp, "yjwd-grok-models.json", json.dumps(catalog))
+            path = self._write(tmp, "p.config.toml",
+                               self._toml(catalog=cat.as_posix()))
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        codes = {f.code for f in findings}
+        self.assertIn("W_TOOL_MODE_CODE", codes)
+        self.assertIn("E_MODALITY_VIDEO", codes)
+        self.assertIn("W_INCLUDES_OFF", codes)
+        self.assertIn("W_VISIBILITY", codes)
+        self.assertNotIn("E_CATALOG_SLUG", codes)
+
+    def test_catalog_slug_mismatch(self):
+        import check_profile as mod
+
+        catalog = {"models": [{"slug": "x-ai/grok-4.6", "shell_type": "unified_exec"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            cat = self._write(tmp, "yjwd-grok-models.json", json.dumps(catalog))
+            path = self._write(tmp, "p.config.toml",
+                               self._toml(catalog=cat.as_posix()))
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        self.assertIn("E_CATALOG_SLUG", [f.code for f in findings if f.severity == mod.ERROR])
+
+    def test_catalog_key_inside_section_is_flagged(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "p.config.toml",
+                               self._toml() + 'model_catalog_json = "C:/x-models.json"\n')
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        self.assertIn("W_CATALOG_IN_SECTION", [f.code for f in findings])
+
+    def test_main_exit_codes_and_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = self._write(tmp, "bad.config.toml", self._toml(base_url=""))
+            rc, out = self._codes(bad)
+            self.assertEqual(rc, 1)
+            self.assertIn("E_BASE_URL_EMPTY", out)
+            rc, out = self._codes(bad, "--strict")
+            self.assertEqual(rc, 1)
+            good = self._write(tmp, "good.config.toml", self._toml())
+            rc, out = self._codes(good)
+            self.assertEqual(rc, 0)
+            warn_only = self._write(
+                tmp, "warn.config.toml",
+                self._toml(catalog="C:/definitely/not/here-models.json"))
+            rc, out = self._codes(warn_only)
+            self.assertEqual(rc, 0)
+            self.assertIn("W_CATALOG_MISSING", out)
+            rc, out = self._codes(warn_only, "--strict")
+            self.assertEqual(rc, 1)
+            rc, out = self._codes(good, "--json")
+            self.assertEqual(rc, 0)
+            json.loads(out)
+
+    def test_invalid_toml_is_error_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "p.config.toml", "model = [\n")
+            rc, out = self._codes(path)
+            self.assertEqual(rc, 1)
+            self.assertIn("E_TOML_PARSE", out)
+
+    def test_missing_file_exits_2(self):
+        import check_profile as mod
+        import contextlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = ["check_profile.py", "--file", str(Path(tmp) / "nope.config.toml")]
+            with mock.patch.object(sys, "argv", argv):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as ctx:
+                        mod.main()
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_subprocess_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = self._write(tmp, "bad.config.toml", self._toml(base_url=""))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "check_profile.py"),
+                 "--file", str(bad), "--no-env-check"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("E_BASE_URL_EMPTY", result.stdout)
+            good = self._write(tmp, "good.config.toml", self._toml())
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "check_profile.py"),
+                 "--file", str(good), "--no-env-check"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
