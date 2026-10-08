@@ -12,18 +12,17 @@ model_provider = "provider-id"
 # BEGIN skill.codex-model-config
 # 本 skill 识读的默认值；Codex 不解析这段注释。
 # 主流模型至少按 258400 上下文 + low/medium/high/xhigh/max 五档思考。
-# 官方更大窗口或更少档位时用 CLI 覆盖。部分档位上游可不可用，允许保留。
-# context_window = 258400
-# compact_percent = 90
+# 上下文和窗口管理: 官方更大窗口或更少档位时用 CLI 覆盖。部分档位上游可不可用，允许保留。
+# 请配置模型目录json中的相应字段来配置上下文窗口.
+
+
 # effective_percent = 100
 # reasoning_effort = "medium"
 # reasoning_levels = ["low", "medium", "high", "xhigh", "max"]
 # input_modalities = ["text", "image"]
 # END skill.codex-model-config
 
-# 上下文须与 model_catalog_json 一起才会按目标生效。未必要用满上游上限。
-model_context_window = 258400
-model_auto_compact_token_limit = 232560
+
 
 # 其他
 preferred_auth_method = "apikey"

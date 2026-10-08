@@ -39,11 +39,11 @@
 
 ## 从模板新建 profile
 
-占位符必须全量替换：`provider-id`、`model-id`、`base_url`、`env_key`（默认 `<PROVIDER>_API_KEY`）。系列名取 slug 最后一段前缀（`grok-4.6`→`grok` 等）。命令见 `usage.md`。
+占位符必须全量替换：`provider-id`、`model-id`、`base_url`、`env_key`（默认 `<PROVIDER>_API_KEY`）。系列名取 slug 最后一段前缀（`grok-4.6`→`grok` 等）。命令见 [usage.md](usage.md)。
 
 ## 保存 API Key
 
-`~/.config/models.env`：无则创建（`600`）、有则追加、同名更新该行。日志只打印变量名与路径。启动前加载该文件（片段见 `usage.md`）。
+`~/.config/models.env`：无则创建（`600`）、有则追加、同名更新该行。日志只打印变量名与路径。启动前加载该文件（片段见 [usage.md](usage.md)）。
 
 ## 推荐 TOML 形状
 
@@ -77,6 +77,14 @@ env_key = "<ENV_VAR>"
 | 只改窗口 | 该 profile + `models.json` |
 
 `model_providers` 不可写项目 `.codex/config.toml`。三客户端共用用户配置，改完重载并开新会话。
+
+## 同供应商多模型（选择器内可切换）
+
+一家供应商多个可用模型（如 `mimo-v2.5` + `mimo-v2.5-pro`）时，推荐做法：**一个 profile，一份目录放多条**，选择器内直接切换。TOML 里 `model` 只是默认项，目录里每条独立 carrying 各自的窗口、档位、工具偏好。
+
+做法：第一个模型正常跑完 `init_profile.py` + `adjust_context_window.py`；之后每个模型只跑 `adjust_context_window.py --catalog-only`（只增改目录条目，不碰 TOML，`model=` 对不上也不会报错）。命令见 [usage.md](usage.md)。
+
+例外：两个模型窗口差距大、且你希望各用各的压缩阈值时，才各建一个 profile（各持一份目录）。不要用 `--force` 把第二个模型塞进第一个 profile——窗口键会被写到错的模型上。
 
 ## 校验
 

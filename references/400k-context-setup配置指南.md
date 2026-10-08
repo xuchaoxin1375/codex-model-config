@@ -1,6 +1,6 @@
 # Codex 400K 上下文配置参考
 
-> 历史示例（DeepSeek 400K，已验证流程仍有效，但三处已过期）：①下文 `~/.codex/models.json` 须换成 `<profile>-models.json` 专用文件；② `include_*=false` 为当时最小复现，当前推荐 `true`（见 `model-catalog-json.md`）；③密钥推荐 `env_key` + `models.env` 而非 `auth.json`。新配置只看 `SKILL.md` + `usage.md`，本文仅作对照。
+> 历史示例（DeepSeek 400K，已验证流程仍有效，但三处已过期）：①下文 `~/.codex/models.json` 须换成 `<profile>-models.json` 专用文件；② `include_*=false` 为当时最小复现，当前推荐 `true`（见 [model-catalog-json.md](model-catalog-json.md)）；③密钥推荐 `env_key` + `models.env` 而非 `auth.json`。新配置只看 [SKILL.md](../SKILL.md) + [usage.md](usage.md)，本文仅作对照。
 
 本文说明如何让 Codex CLI 和 VSCode Codex 扩展都使用 400K 上下文窗口。适用场景：第三方/自定义模型供应商，例如 DeepSeek，并通过 `model_provider` 接入 Codex。
 

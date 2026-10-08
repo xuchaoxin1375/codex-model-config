@@ -1,4 +1,5 @@
 import json
+import io
 import os
 import subprocess
 import sys
@@ -58,7 +59,12 @@ from adjust_context_window import (
     synthesize_model_entry,
 )
 from model_meta import install_as_default_config
+from model_meta import parse_kv_pairs
+from model_meta import parse_modalities
 from model_meta import parse_reasoning_levels
+from init_profile import apply_provider_tuning
+from init_profile import set_provider_key
+from init_profile import toml_table
 
 
 class DecodeUtf8Tests(unittest.TestCase):
@@ -952,6 +958,629 @@ class CatalogPathTests(unittest.TestCase):
             )
             self.assertEqual(path, custom.resolve())
             self.assertIsNone(note)
+
+
+class NullPatchPreservationTests(unittest.TestCase):
+    def test_explicit_null_survives_sweep(self):
+        import adjust_context_window as mod
+
+        out = mod.ensure_required_model_fields(
+            {"slug": "grok-4.6", "apply_patch_tool_type": None, "shell_type": "unified_exec"},
+            preserve_null_patch=True,
+        )
+        self.assertIsNone(out["apply_patch_tool_type"])
+        self.assertEqual(out["shell_type"], "unified_exec")
+
+    def test_missing_patch_still_fills_freeform(self):
+        import adjust_context_window as mod
+
+        out = mod.ensure_required_model_fields(
+            {"slug": "new-model"}, preserve_null_patch=True
+        )
+        self.assertEqual(out["apply_patch_tool_type"], "freeform")
+
+    def test_cli_null_flag_keeps_grok_null(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "yjwd-grok.config.toml").write_text(
+                'model = "grok-4.6"\nmodel_provider = "yjwd-grok"\n',
+                encoding="utf-8",
+            )
+            (home / "yjwd-grok-models.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {"slug": "gpt-5.5", "context_window": 272000},
+                            {
+                                "slug": "grok-4.6",
+                                "context_window": 1000,
+                                "apply_patch_tool_type": None,
+                                "shell_type": "unified_exec",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "grok-4.6",
+                "--profile",
+                "yjwd-grok",
+                "--context-window",
+                "300000",
+                "--apply-patch-type",
+                "null",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                rc = mod.main()
+            self.assertEqual(rc, 0)
+            catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
+            grok = next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+            self.assertIsNone(grok.get("apply_patch_tool_type"))
+            self.assertEqual(grok.get("shell_type"), "unified_exec")
+
+
+class ParseKvPairsTests(unittest.TestCase):
+    def test_none_and_empty_yield_empty(self):
+        self.assertEqual(parse_kv_pairs(None, flag="--query-params"), {})
+        self.assertEqual(parse_kv_pairs("", flag="--query-params"), {})
+
+    def test_multiple_pairs(self):
+        self.assertEqual(
+            parse_kv_pairs("api-version=2025-04-01-preview, other=x", flag="--query-params"),
+            {"api-version": "2025-04-01-preview", "other": "x"},
+        )
+
+    def test_value_may_contain_equals(self):
+        self.assertEqual(
+            parse_kv_pairs("url=https://x.invalid?a=b", flag="--http-headers"),
+            {"url": "https://x.invalid?a=b"},
+        )
+
+    def test_missing_equals_raises(self):
+        with self.assertRaises(ValueError):
+            parse_kv_pairs("novalue", flag="--query-params")
+
+    def test_empty_key_or_value_raises(self):
+        with self.assertRaises(ValueError):
+            parse_kv_pairs("key=", flag="--query-params")
+        with self.assertRaises(ValueError):
+            parse_kv_pairs("=value", flag="--query-params")
+
+
+class ParseModalitiesTests(unittest.TestCase):
+    def test_audio_is_allowed(self):
+        self.assertEqual(
+            parse_modalities("text,image,audio"), ["text", "image", "audio"]
+        )
+
+    def test_video_is_rejected_by_codex_catalog(self):
+        with self.assertRaises(ValueError):
+            parse_modalities("text,image,video")
+
+    def test_unknown_modality_raises(self):
+        with self.assertRaises(ValueError):
+            parse_modalities("text,pdf")
+
+
+class ProviderKeyTests(unittest.TestCase):
+    TEMPLATE = (
+        'model = "m"\n'
+        'model_provider = "p"\n'
+        "\n"
+        "[model_providers.p]\n"
+        'name = "p"\n'
+        'base_url = "https://example.invalid/v1"\n'
+        "\n"
+        "[other]\n"
+        "x = 1\n"
+    )
+
+    def test_insert_goes_inside_section(self):
+        out = set_provider_key(self.TEMPLATE, "p", "request_max_retries", "4")
+        self.assertIn("request_max_retries = 4\n", out)
+        before_other = out.split("[other]")[0]
+        self.assertIn("request_max_retries = 4", before_other)
+
+    def test_replace_existing(self):
+        once = set_provider_key(self.TEMPLATE, "p", "request_max_retries", "4")
+        twice = set_provider_key(once, "p", "request_max_retries", "9")
+        self.assertIn("request_max_retries = 9\n", twice)
+        self.assertNotIn("request_max_retries = 4", twice)
+
+    def test_missing_section_raises(self):
+        with self.assertRaises(ValueError):
+            set_provider_key(self.TEMPLATE, "nope", "request_max_retries", "4")
+
+    def test_toml_table_quotes_keys(self):
+        self.assertEqual(
+            toml_table({"api-version": "2025-04-01-preview"}),
+            '{ "api-version" = "2025-04-01-preview" }',
+        )
+
+    def test_apply_tuning_writes_all(self):
+        out = apply_provider_tuning(
+            self.TEMPLATE,
+            "p",
+            query_params={"api-version": "2025-04-01-preview"},
+            http_headers={},
+            env_http_headers={"X-API-Key": "LITELLM_API_KEY"},
+            request_max_retries=4,
+            stream_max_retries=None,
+            stream_idle_timeout_ms=300000,
+            supports_websockets=True,
+        )
+        self.assertIn('query_params = { "api-version" = "2025-04-01-preview" }', out)
+        self.assertIn('env_http_headers = { "X-API-Key" = "LITELLM_API_KEY" }', out)
+        self.assertIn("request_max_retries = 4", out)
+        self.assertIn("stream_idle_timeout_ms = 300000", out)
+        self.assertIn("supports_websockets = true", out)
+        self.assertNotIn("stream_max_retries", out)
+        self.assertNotIn("http_headers", out.split("[other]")[0].split("env_http_headers")[0])
+
+
+class InitProfileTuningCliTests(unittest.TestCase):
+    def test_tuning_flags_land_in_provider_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init_profile.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--provider",
+                    "yjwd-grok",
+                    "--base-url",
+                    "https://example.invalid/v1",
+                    "--query-params",
+                    "api-version=2025-04-01-preview",
+                    "--request-max-retries",
+                    "4",
+                    "--stream-idle-timeout-ms",
+                    "300000",
+                    "--supports-websockets",
+                    "--yes",
+                    "--codex-home",
+                    str(home),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            profile = (home / "yjwd-grok.config.toml").read_text(encoding="utf-8")
+            section = profile.split("[model_providers.yjwd-grok]")[1]
+            self.assertIn('query_params = { "api-version" = "2025-04-01-preview" }', section)
+            self.assertIn("request_max_retries = 4", section)
+            self.assertIn("stream_idle_timeout_ms = 300000", section)
+            self.assertIn("supports_websockets = true", section)
+
+    def test_conflicting_websocket_flags_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init_profile.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--base-url",
+                    "https://example.invalid/v1",
+                    "--supports-websockets",
+                    "--no-supports-websockets",
+                    "--yes",
+                    "--codex-home",
+                    str(tmp),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_negative_retries_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init_profile.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--base-url",
+                    "https://example.invalid/v1",
+                    "--request-max-retries",
+                    "-1",
+                    "--yes",
+                    "--codex-home",
+                    str(tmp),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_chat_wire_api_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init_profile.py"),
+                    "--model",
+                    "grok-4.6",
+                    "--base-url",
+                    "https://example.invalid/v1",
+                    "--wire-api",
+                    "chat",
+                    "--yes",
+                    "--codex-home",
+                    str(tmp),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+
+class WebSearchFlagsTests(unittest.TestCase):
+    def _home_with_entry(self, tmp: str, entry: dict) -> Path:
+        home = Path(tmp)
+        (home / "yjwd-grok.config.toml").write_text(
+            'model = "grok-4.6"\nmodel_provider = "yjwd-grok"\n',
+            encoding="utf-8",
+        )
+        (home / "yjwd-grok-models.json").write_text(
+            json.dumps({"models": [dict(entry)]}), encoding="utf-8"
+        )
+        return home
+
+    def _run_adjust(self, home: Path, *extra: str):
+        import adjust_context_window as mod
+
+        argv = [
+            "adjust_context_window.py",
+            "--model",
+            "grok-4.6",
+            "--profile",
+            "yjwd-grok",
+            "--context-window",
+            "300000",
+            "--yes",
+            "--codex-home",
+            str(home),
+            *extra,
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            return mod.main()
+
+    def _entry(self, home: Path) -> dict:
+        catalog = json.loads((home / "yjwd-grok-models.json").read_text(encoding="utf-8"))
+        return next(item for item in catalog["models"] if item["slug"] == "grok-4.6")
+
+    def test_web_search_type_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_entry(tmp, {"slug": "grok-4.6", "context_window": 1000})
+            self.assertEqual(self._run_adjust(home, "--web-search-type", "text_and_image"), 0)
+            self.assertEqual(self._entry(home).get("web_search_tool_type"), "text_and_image")
+
+    def test_missing_web_search_defaults_to_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_entry(tmp, {"slug": "grok-4.6", "context_window": 1000})
+            self.assertEqual(self._run_adjust(home), 0)
+            self.assertEqual(self._entry(home).get("web_search_tool_type"), "text")
+
+    def test_no_supports_search_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_entry(tmp, {"slug": "grok-4.6", "context_window": 1000})
+            self.assertEqual(self._run_adjust(home, "--no-supports-search-tool"), 0)
+            self.assertIs(self._entry(home).get("supports_search_tool"), False)
+
+    def test_supports_search_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_entry(
+                tmp, {"slug": "grok-4.6", "context_window": 1000, "supports_search_tool": False}
+            )
+            self.assertEqual(self._run_adjust(home, "--supports-search-tool"), 0)
+            self.assertIs(self._entry(home).get("supports_search_tool"), True)
+
+
+class TruthMatrixTests(unittest.TestCase):
+    def test_every_matrix_file_exists(self):
+        import re
+
+        text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        section = text.split("## 真源矩阵", 1)[1].split("## ", 1)[0]
+        paths = re.findall(r"`((?:references/)?[\w\-.]+(?:\.md|\.toml))`", section)
+        paths += [
+            target
+            for _, target in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", section)
+            if target.endswith((".md", ".toml"))
+        ]
+        paths = list(dict.fromkeys(paths))
+        self.assertGreater(len(paths), 5, "matrix should list the doc set")
+        missing = [p for p in paths if not (ROOT / p).exists()]
+        self.assertEqual(missing, [])
+
+
+class MultiModelSupplierTests(unittest.TestCase):
+    def _adjust(self, home, model, profile, context="300000"):
+        import adjust_context_window as mod
+
+        def fake_dump(catalog: Path):
+            data = {"models": [{"slug": "gpt-5.5", "display_name": "GPT"}]}
+            catalog.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            return data
+
+        argv = [
+            "adjust_context_window.py",
+            "--model",
+            model,
+            "--profile",
+            profile,
+            "--bootstrap-bundled",
+            "--from-cache",
+            "--context-window",
+            context,
+            "--base-url",
+            "https://example.invalid/v1",
+            "--yes",
+            "--codex-home",
+            str(home),
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            with mock.patch.object(mod, "dump_bundled_catalog", fake_dump):
+                return mod.main()
+
+    def _catalog_slugs(self, home, profile):
+        catalog = json.loads(
+            (home / f"{profile}-models.json").read_text(encoding="utf-8")
+        )
+        return [item["slug"] for item in catalog["models"]]
+
+    def test_two_models_get_two_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(self._adjust(home, "mimo-v2.5", "mimo"), 0)
+            self.assertEqual(self._adjust(home, "mimo-v2.5-pro", "mimo-pro"), 0)
+            mimo_toml = (home / "mimo.config.toml").read_text(encoding="utf-8")
+            pro_toml = (home / "mimo-pro.config.toml").read_text(encoding="utf-8")
+            self.assertIn('model = "mimo-v2.5"', mimo_toml)
+            self.assertIn('model = "mimo-v2.5-pro"', pro_toml)
+            self.assertIn("mimo-v2.5", self._catalog_slugs(home, "mimo"))
+            self.assertIn("mimo-v2.5-pro", self._catalog_slugs(home, "mimo-pro"))
+            self.assertIn("gpt-5.5", self._catalog_slugs(home, "mimo"))
+
+    def test_same_profile_second_model_errors_with_hint(self):
+        import adjust_context_window as mod
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(self._adjust(home, "mimo-v2.5", "mimo"), 0)
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "mimo-v2.5-pro",
+                "--profile",
+                "mimo",
+                "--context-window",
+                "300000",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            err = io.StringIO()
+            with mock.patch.object(sys, "argv", argv):
+                with contextlib.redirect_stderr(err):
+                    with self.assertRaises(SystemExit) as ctx:
+                        mod.main()
+            self.assertNotEqual(ctx.exception.code, 0)
+            self.assertIn("separate profile", err.getvalue())
+
+
+class SharedCatalogAndDevTests(unittest.TestCase):
+    def _home_with_profile(self, tmp: str) -> Path:
+        home = Path(tmp)
+        (home / "mimo.config.toml").write_text(
+            'model = "mimo-v2.5"\n'
+            'model_provider = "mimo"\n'
+            'model_context_window = 1000000\n',
+            encoding="utf-8",
+        )
+        (home / "mimo-models.json").write_text(
+            json.dumps(
+                {
+                    "models": [
+                        {"slug": "gpt-5.5", "context_window": 272000},
+                        {"slug": "mimo-v2.5", "context_window": 1000000},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (home / "models_cache.json").write_text(
+            json.dumps({"models": [{"slug": "xiaomi/mimo-v2.5-pro", "context_window": 1000000}]}),
+            encoding="utf-8",
+        )
+        return home
+
+    def _run_adjust(self, home: Path, *extra: str):
+        import adjust_context_window as mod
+
+        argv = [
+            "adjust_context_window.py",
+            "--model",
+            "mimo-v2.5-pro",
+            "--profile",
+            "mimo",
+            "--from-cache",
+            "--context-window",
+            "1000000",
+            "--yes",
+            "--codex-home",
+            str(home),
+            *extra,
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            return mod.main()
+
+    def test_catalog_only_adds_second_entry_leaves_toml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_profile(tmp)
+            before = (home / "mimo.config.toml").read_text(encoding="utf-8")
+            self.assertEqual(self._run_adjust(home, "--catalog-only"), 0)
+            catalog = json.loads((home / "mimo-models.json").read_text(encoding="utf-8"))
+            slugs = [item["slug"] for item in catalog["models"]]
+            self.assertIn("mimo-v2.5", slugs)
+            self.assertIn("mimo-v2.5-pro", slugs)
+            pro = next(item for item in catalog["models"] if item["slug"] == "mimo-v2.5-pro")
+            self.assertEqual(pro["context_window"], 1000000)
+            self.assertEqual((home / "mimo.config.toml").read_text(encoding="utf-8"), before)
+            self.assertEqual(list(home.glob("mimo.config.toml.bak.*")), [])
+
+    def test_catalog_only_missing_profile_fails(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "mimo-v2.5-pro",
+                "--profile",
+                "mimo",
+                "--from-cache",
+                "--context-window",
+                "1000000",
+                "--base-url",
+                "https://example.invalid/v1",
+                "--catalog-only",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                with self.assertRaises(SystemExit) as ctx:
+                    mod.main()
+            self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_catalog_only_with_as_default_fails(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_profile(tmp)
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "mimo-v2.5-pro",
+                "--profile",
+                "mimo",
+                "--catalog-only",
+                "--as-default",
+                "--yes",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                with self.assertRaises(SystemExit) as ctx:
+                    mod.main()
+            self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_dev_writes_nothing(self):
+        import adjust_context_window as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_profile(tmp)
+            toml_before = (home / "mimo.config.toml").read_text(encoding="utf-8")
+            cat_before = (home / "mimo-models.json").read_text(encoding="utf-8")
+            argv = [
+                "adjust_context_window.py",
+                "--model",
+                "mimo-v2.5-pro",
+                "--profile",
+                "mimo",
+                "--from-cache",
+                "--context-window",
+                "1000000",
+                "--catalog-only",
+                "--dev",
+                "--codex-home",
+                str(home),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                with mock.patch.object(sys, "stdout", new_callable=io.StringIO) as out:
+                    rc = mod.main()
+            self.assertEqual(rc, 0)
+            self.assertIn("preview", out.getvalue())
+            self.assertIn("mimo-v2.5-pro", out.getvalue())
+            self.assertEqual((home / "mimo.config.toml").read_text(encoding="utf-8"), toml_before)
+            self.assertEqual((home / "mimo-models.json").read_text(encoding="utf-8"), cat_before)
+            self.assertEqual(list(home.glob("*.bak.*")), [])
+
+    def test_init_dev_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init_profile.py"),
+                    "--model",
+                    "mimo-v2.5",
+                    "--provider",
+                    "mimo",
+                    "--base-url",
+                    "https://example.invalid/v1",
+                    "--dev",
+                    "--codex-home",
+                    str(home),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn('model = "mimo-v2.5"', result.stdout)
+            self.assertIn("[model_providers.mimo]", result.stdout)
+            self.assertFalse((home / "mimo.config.toml").exists())
+
+
+class PreviewPrintTests(unittest.TestCase):
+    def test_gbk_console_does_not_crash(self):
+        from model_meta import print_preview_body
+
+        class GbkStdout:
+            encoding = "gbk"
+
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+        fake = GbkStdout()
+        with mock.patch.object(sys, "stdout", fake):
+            print_preview_body("entry \u2020 \u4e2d\u6587")
+        out = fake.buffer.getvalue()
+        self.assertIn(b"\\u2020", out)
+        self.assertIn("中文".encode("gbk"), out)
+
+    def test_stringio_fallback_prints_verbatim(self):
+        from model_meta import print_preview_body
+
+        buf = io.StringIO()
+        with mock.patch.object(sys, "stdout", buf):
+            print_preview_body("a \u2020 z")
+        self.assertIn("\u2020", buf.getvalue())
 
 
 class LiveCodexDumpTests(unittest.TestCase):

@@ -14,7 +14,10 @@ import json
 import os
 import re
 import sys
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10: pip install tomli
+    import tomli as tomllib
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -27,6 +30,7 @@ from model_meta import (
     install_as_default_config,
     load_skill_defaults,
     parse_kv_pairs,
+    print_preview_body,
     set_top_level_key,
 )
 
@@ -309,6 +313,11 @@ def parse_args() -> argparse.ArgumentParser:
         help="explicit output path; default: <codex-home>/<provider>.config.toml",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="preview the rendered profile TOML; write nothing",
+    )
     parser.add_argument("--force", action="store_true", help="overwrite an existing profile")
     parser.add_argument(
         "--query-params",
@@ -441,6 +450,10 @@ def main() -> int:
         else:
             parser.error(f"{output} already exists; pass --force to overwrite")
     if args.dry_run:
+        return 0
+    if args.dev:
+        print(f"--- preview: {output} (no writes) ---")
+        print_preview_body(rendered.rstrip("\n"))
         return 0
     if not args.yes:
         if not sys.stdin.isatty():

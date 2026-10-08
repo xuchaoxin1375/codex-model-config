@@ -43,13 +43,13 @@ description: >
 
 ## 工作流
 
-1. 收集：slug、`base_url`、env 名；窗口/档位有则用，无则 `--defaults`。
+1. 收集：slug、`base_url`、env 名；窗口/档位有则用，无则 `--defaults`。同供应商多模型见 [references/workflow.md](references/workflow.md)（同窗口共享目录用 `--catalog-only`，窗口不同才分 profile）。
 2. 官方值覆盖：`--context-window` / `--reasoning-levels`；`base_url`/slug 缺失则停下。
-3. 建 profile：`init_profile.py`（模板全量替换）。提供方调优（`query_params`/headers/重试/超时/websockets）按需传参，见 `usage.md`。
-4. 写目录：`adjust_context_window.py --bootstrap-bundled --from-cache`。工具/模态覆盖（`--apply-patch-type`/`--web-search-type`/`--input-modalities`/`--supports-search-tool`）见 `usage.md`，语义见 `model-catalog-json.md`。
+3. 建 profile：`init_profile.py`（模板全量替换）。提供方调优（`query_params`/headers/重试/超时/websockets）按需传参，见 [usage.md](usage.md)。
+4. 写目录：`adjust_context_window.py --bootstrap-bundled --from-cache`。工具/模态覆盖（`--apply-patch-type`/`--web-search-type`/`--input-modalities`/`--supports-search-tool`）、同目录多模型（`--catalog-only`）、预览（`--dev`）见 [usage.md](usage.md)，语义见 [model-catalog-json.md](model-catalog-json.md)。
 5. 只改必要顶层键和对应 `[model_providers.<id>]`。
 6. 写入前 TOML/JSON 语法校验；失败中止。
-7. `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 `model-catalog-json.md`）。
+7. `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 [model-catalog-json.md](model-catalog-json.md)），再用 `exec` 打一次真实请求确认网关不拒收（命令见 [usage.md](usage.md)）。
 8. 重载客户端并开新对话。`--profile` 对 `doctor` 无效；切换提供方后另一组历史仅隐藏。
 
 `--reasoning-levels` 写目录的 `supported_reasoning_levels`，当前档是 TOML 的 `model_reasoning_effort`。窗口公式见 [references/context-window-guide.md](references/context-window-guide.md)。
@@ -68,23 +68,26 @@ description: >
 4. API Key（可选，给出则写入 ~/.config/models.env，不回显；TOML 只保留 env_key）：
 5. env 变量名（可选，默认 `<PROVIDER>_API_KEY`）：
 6. 上下文窗口/思考档（可选；有官方值填，无则按官方文档查，查不到用 258400 + low,medium,high,xhigh,max）：
-7. 输入模态（可选，默认 text,image；视频模型加 video）：
+7. 输入模态（可选，默认 text,image；按官方模态加 audio；本版 Codex 目录不支持 video）：
 8. 工具偏好（可选，默认去 `code_mode_only`、`apply_patch=freeform`、`shell=unified_exec`、`web_search=text`；Grok 实测失败保持 null）：
 9. 提供方调优（可选，如 "query_params/headers/重试/超时/websockets"，按需填）：
 10. 生效范围（可选，默认新建 `~/.codex/<provider>.config.toml`；仅明确要求才 `--as-default` 覆盖默认 `config.toml`）：
 
 收齐后我会先展示执行方案（含改哪份 TOML、目录 slug/窗口/档位/工具字段），你确认后再执行。
 
-字段含义见 `references/model-info-sources.md` 与 `references/model-catalog-json.md`；命令见 `references/usage.md`。
+字段含义见 [references/model-info-sources.md](references/model-info-sources.md) 与 [references/model-catalog-json.md](references/model-catalog-json.md)；命令见 [references/usage.md](references/usage.md)。
 
 ## 参考索引
 
 - 命令：[references/usage.md](references/usage.md)
 - 顺序与字段分工：[references/workflow.md](references/workflow.md)
 - 字段主次与兼容：[references/model-catalog-json.md](references/model-catalog-json.md)
+- 工具调用（改文件/搜索三条路/依赖）：[references/tool-calling.md](references/tool-calling.md)
 - 目录来源：[references/catalog-source.md](references/catalog-source.md)
 - 模型信息源：[references/model-info-sources.md](references/model-info-sources.md)
 - 窗口钳制：[references/context-window-guide.md](references/context-window-guide.md)
 - 陷阱（含 Grok/verbosity/编码）：[references/常见陷阱.md](references/常见陷阱.md)
 - 沙箱/审批：[references/codex-sandbox-permissions.md](references/codex-sandbox-permissions.md)
+- 本 skill 开发规范：[references/dev-guide.md](references/dev-guide.md)
 - 历史示例：[references/400k-context-setup配置指南.md](references/400k-context-setup配置指南.md)
+- 配置案例：[references/case-xiaomi-mimo.md](references/case-xiaomi-mimo.md)

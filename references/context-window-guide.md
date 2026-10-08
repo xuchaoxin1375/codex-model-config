@@ -22,4 +22,4 @@ effective = min(model_context_window, max_context_window) * effective_context_wi
 | `auto_compact_token_limit` | 目录条目 | 留 `null`，由 TOML 定 |
 | `comp_hash` | 目录条目 | 窗口变时更新 |
 
-未知 slug 走 fallback（约 `272000*95%≈258400`）。`slug` 必须与 `model=` 全等。工具字段与校验命令分别见 [model-catalog-json.md](model-catalog-json.md) 与 `usage.md`，此处不重复。
+未知 slug 走 fallback（约 `272000*95%≈258400`）。`slug` 必须与 `model=` 全等。工具字段与校验命令分别见 [model-catalog-json.md](model-catalog-json.md) 与 [usage.md](usage.md)，此处不重复。

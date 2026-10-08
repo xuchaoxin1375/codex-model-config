@@ -46,6 +46,16 @@ approval_policy = "on-request"
 network_access = true
 ```
 
+默认放行所有 profile 的 shell 出站网络（已在 Windows elevated 沙箱实测）：就是上面这组键，写默认 `config.toml`。注意默认 `sandbox_mode` 注释掉时不一定是 `workspace-write`，`network_access` 对不上模式等于没开，两行必须同时在。
+
+## Windows 沙箱 HTTPS 注意（已验证）
+
+放行后仍有一种失败与开关无关：`curl.exe` 访问 HTTPS 报 `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS`（exit 35），而同地址 HTTP 正常——沙箱内 Schannel 拿不到系统证书凭据。不是代理问题，不用调代理。
+
+- 要取 HTTPS 内容：用 Python（`urllib`/`requests`，自带证书链，已验证可通），不要用 `curl.exe` / `Invoke-WebRequest`。
+- 判读方法：`curl -sS` 看是否 `SEC_E_NO_CREDENTIALS`；是则换 Python，不是则按“本 skill 会踩到的边界”查。
+- 这与 `web_search` 开关相互独立：禁搜索不挡 shell，shell 没网也不影响托管搜索。
+
 等价 CLI：
 
 ```powershell

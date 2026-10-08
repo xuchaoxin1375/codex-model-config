@@ -1,0 +1,7 @@
+[project]
+name = "codex-model-config"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["tomli>=2.0.1; python_version<'3.11'"]

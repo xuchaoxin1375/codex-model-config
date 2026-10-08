@@ -5,7 +5,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import shutil
-import tomllib
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10: pip install tomli
+    import tomli as tomllib
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +20,8 @@ REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # wire_api 只剩 responses（2026-02 起 chat 已移除，写 chat 直接启动失败）。
 APPLY_PATCH_TYPES = ("freeform", "null")
 WEB_SEARCH_TYPES = ("text", "text_and_image")
-INPUT_MODALITIES = ("text", "image", "audio", "video")
+# Codex ModelInfo 只接受 text/image/audio；写 video 整份 catalog 拒读。
+INPUT_MODALITIES = ("text", "image", "audio")
 
 SKILL_DEFAULTS_BEGIN = "# BEGIN skill.codex-model-config"
 SKILL_DEFAULTS_END = "# END skill.codex-model-config"
@@ -219,3 +224,25 @@ def install_as_default_config(source: Path, default_config: Path) -> Path | None
         shutil.copy2(default_config, backup)
     shutil.copy2(source, default_config)
     return backup
+
+
+def print_preview_body(body: str) -> None:
+    """Print preview text without crashing on locale consoles (e.g. GBK).
+
+    Catalog entries and templates may contain characters the console
+    encoding cannot represent (e.g. U+2020 in bundled descriptions).
+    Encode for the real stdout with backslashreplace; fall back to plain
+    print when stdout has no buffer (StringIO in tests).
+    """
+    stdout = sys.stdout
+    buf = getattr(stdout, "buffer", None)
+    if buf is not None:
+        enc = getattr(stdout, "encoding", None) or "utf-8"
+        try:
+            buf.write(body.encode(enc, "backslashreplace"))
+            buf.write(b"\n")
+            buf.flush()
+            return
+        except (OSError, ValueError):
+            pass
+    print(body)

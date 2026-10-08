@@ -23,13 +23,17 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
+import difflib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10: pip install tomli
+    import tomli as tomllib
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +51,7 @@ from model_meta import (
     load_skill_defaults,
     parse_modalities,
     parse_reasoning_levels,
+    print_preview_body,
 )
 from init_profile import default_template, render_template, validate_provider
 
@@ -143,7 +148,6 @@ def decode_utf8_output(raw: bytes | str | None, *, errors: str = "strict") -> st
     if isinstance(raw, str):
         return raw
     return raw.decode("utf-8", errors=errors)
-
 
 def dump_bundled_catalog(catalog: Path) -> dict[str, Any]:
     env = os.environ.copy()
@@ -272,11 +276,15 @@ def _usable_tool_value(value: Any, *, empty: tuple[Any, ...]) -> Any | None:
 def ensure_required_model_fields(
     model: dict[str, Any],
     skeleton: dict[str, Any] | None = None,
+    *,
+    preserve_null_patch: bool = False,
 ) -> dict[str, Any]:
     skeleton = skeleton or {}
     patch_empty = (None, "", "none")
     shell_empty = (None, "", "default")
-    if _usable_tool_value(model.get("apply_patch_tool_type"), empty=patch_empty) is None:
+    if preserve_null_patch and "apply_patch_tool_type" in model and model["apply_patch_tool_type"] is None:
+        pass
+    elif _usable_tool_value(model.get("apply_patch_tool_type"), empty=patch_empty) is None:
         inherited = _usable_tool_value(skeleton.get("apply_patch_tool_type"), empty=patch_empty)
         model["apply_patch_tool_type"] = inherited or "freeform"
     if _usable_tool_value(model.get("shell_type"), empty=shell_empty) is None:
@@ -445,7 +453,9 @@ def synthesize_model_entry(
         web_search_type=web_search_type,
         supports_search_tool=supports_search_tool,
     )
-    return ensure_required_model_fields(entry, skeleton)
+    return ensure_required_model_fields(
+        entry, skeleton, preserve_null_patch=(apply_patch_type == "null")
+    )
 
 
 def missing_config_text(
@@ -508,6 +518,7 @@ def print_proposal(
     using_defaults: bool,
     created_profile: bool = False,
     base_url: str = "",
+    catalog_only: bool = False,
 ) -> None:
     print("Proposed change")
     print(f"  model:                {slug}")
@@ -535,6 +546,8 @@ def print_proposal(
         print("  profile source:       skill template (file was missing)")
         if not base_url:
             print("  warning:              base_url is empty; fill it before starting Codex")
+    if catalog_only:
+        print("  catalog_only:         TOML untouched; catalog entry only")
 
 
 def main() -> int:
@@ -613,7 +626,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--input-modalities",
-        help="comma-separated catalog input_modalities, e.g. text,image (allowed: text,image,audio,video)",
+        help="comma-separated catalog input_modalities, e.g. text,image (allowed: text,image,audio)",
     )
     parser.add_argument(
         "--apply-patch-type",
@@ -627,8 +640,17 @@ def main() -> int:
         default=None,
         help="catalog web_search_tool_type override; default keeps skeleton or text",
     )
-    parser.add_argument("--supports-search-tool", action="store_true", default=None)
-    parser.add_argument("--no-supports-search-tool", action="store_true")
+    parser.add_argument(
+        "--supports-search-tool",
+        action="store_true",
+        default=None,
+        help="catalog supports_search_tool=true (deferred MCP/app tool discovery, not web search)",
+    )
+    parser.add_argument(
+        "--no-supports-search-tool",
+        action="store_true",
+        help="catalog supports_search_tool=false",
+    )
     parser.add_argument("--force", action="store_true", help="allow editing a TOML whose model= does not match --model")
     parser.add_argument(
         "--as-default",
@@ -637,12 +659,27 @@ def main() -> int:
     )
     parser.add_argument("--yes", action="store_true", help="apply without prompting")
     parser.add_argument("--dry-run", action="store_true", help="print the proposal and exit")
+    parser.add_argument(
+        "--catalog-only",
+        action="store_true",
+        help="only add/update this model's catalog entry; leave the TOML untouched "
+        "(for sharing one profile catalog between models)",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="preview the would-be TOML diff and catalog entry; write nothing",
+    )
     args = parser.parse_args()
 
     if args.profile and args.config:
         parser.error("use either --profile or --config, not both")
     if args.as_default and not args.profile:
         parser.error("--as-default requires --profile")
+    if args.catalog_only and args.as_default:
+        parser.error("--catalog-only cannot be combined with --as-default")
+    if args.dev and args.as_default:
+        parser.error("--dev cannot be combined with --as-default")
 
     codex_home = Path(args.codex_home).expanduser()
     if args.profile:
@@ -698,6 +735,8 @@ def main() -> int:
         config_text, created_profile = missing_config_text(parser, args, config, codex_home, reasoning_effort)
     else:
         config_text = config.read_text(encoding="utf-8")
+    if args.catalog_only and created_profile:
+        parser.error("--catalog-only needs an existing profile TOML; create it first without --catalog-only")
 
     try:
         catalog, catalog_note = resolve_catalog_path(
@@ -724,10 +763,19 @@ def main() -> int:
         if profile_hits:
             names = ", ".join(path.name.removesuffix(".config.toml") for path in profile_hits)
             hint = f" Matching profile(s): --profile {names}."
-        parser.error(
-            f"{config} has model={current_model!r}, not {args.model!r}. "
-            f"Edit the TOML that actually selects this model, or pass --force.{hint}"
-        )
+        if args.catalog_only:
+            print(
+                f"warning: {config} selects model={current_model!r}; "
+                f"adding {args.model!r} to its catalog only (TOML untouched).",
+                file=sys.stderr,
+            )
+        else:
+            parser.error(
+                f"{config} has model={current_model!r}, not {args.model!r}. "
+                f"Edit the TOML that actually selects this model, or pass --force.{hint} "
+                "To list another model from the same supplier in this profile's catalog, "
+                "use --catalog-only; use a separate profile when windows differ."
+            )
 
     if not args.profile and current_model != args.model:
         profile_hits = find_profiles_with_model(codex_home, args.model)
@@ -843,13 +891,14 @@ def main() -> int:
         using_defaults=using_defaults,
         created_profile=created_profile,
         base_url=args.base_url or "",
+        catalog_only=args.catalog_only,
     )
     if args.as_default:
         print(f"  as_default:            backup and replace {codex_home / 'config.toml'}")
 
     if args.dry_run:
         return 0
-    if not args.yes:
+    if not args.yes and not args.dev:
         if not sys.stdin.isatty():
             parser.error("refusing non-interactive change without --yes")
         answer = input("Apply changes? [y/N] ").strip().lower()
@@ -884,30 +933,64 @@ def main() -> int:
             web_search_type=args.web_search_type,
             supports_search_tool=supports_search_tool,
         )
-    models[index] = ensure_required_model_fields(model, pick_tool_capable_skeleton(models))
+    models[index] = ensure_required_model_fields(
+        model,
+        pick_tool_capable_skeleton(models),
+        preserve_null_patch=(args.apply_patch_type == "null"),
+    )
     for offset, item in enumerate(models):
         if isinstance(item, dict):
-            models[offset] = ensure_required_model_fields(item)
+            if offset == index:
+                continue
+            models[offset] = ensure_required_model_fields(item, preserve_null_patch=True)
 
-    config_text = set_top_level_key(config_text, "model_context_window", context_window)
-    config_text = set_top_level_key(config_text, "model_auto_compact_token_limit", clean_compact)
-    config_text = set_top_level_key(config_text, "model_catalog_json", catalog_posix(catalog))
-    config_text = set_top_level_key(config_text, "model_reasoning_effort", reasoning_effort)
-    try:
-        tomllib.loads(config_text)
-    except tomllib.TOMLDecodeError as exc:
-        parser.error(f"generated config is invalid: {exc}")
+    old_config_text = config_text
+    if not args.catalog_only:
+        config_text = set_top_level_key(config_text, "model_context_window", context_window)
+        config_text = set_top_level_key(config_text, "model_auto_compact_token_limit", clean_compact)
+        config_text = set_top_level_key(config_text, "model_catalog_json", catalog_posix(catalog))
+        config_text = set_top_level_key(config_text, "model_reasoning_effort", reasoning_effort)
+        try:
+            tomllib.loads(config_text)
+        except tomllib.TOMLDecodeError as exc:
+            parser.error(f"generated config is invalid: {exc}")
+
+    if args.dev:
+        print(f"--- preview: {config} (no writes) ---")
+        if args.catalog_only:
+            print("(TOML untouched by --catalog-only)")
+        elif old_config_text.splitlines() == config_text.splitlines():
+            print("(TOML unchanged)")
+        else:
+            print_preview_body(
+                "\n".join(
+                    difflib.unified_diff(
+                        old_config_text.splitlines(),
+                        config_text.splitlines(),
+                        fromfile=str(config) + " (current)",
+                        tofile=str(config) + " (preview)",
+                        lineterm="",
+                    )
+                )
+            )
+        print(f"--- preview: catalog entry {args.model} (no writes) ---")
+        print_preview_body(json.dumps(models[index], ensure_ascii=False, indent=2))
+        return 0
 
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    if config.exists():
+    if config.exists() and not args.catalog_only:
         shutil.copy2(config, config.with_name(f"{config.name}.bak.{stamp}"))
     if catalog.exists():
         shutil.copy2(catalog, catalog.with_name(f"{catalog.name}.bak.{stamp}"))
     config.parent.mkdir(parents=True, exist_ok=True)
     catalog.write_text(json.dumps(root, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    config.write_text(config_text, encoding="utf-8")
+    if not args.catalog_only:
+        config.write_text(config_text, encoding="utf-8")
 
-    print(f"{'Created' if created_profile else 'Updated'} {config}")
+    if args.catalog_only:
+        print(f"TOML untouched: {config}")
+    else:
+        print(f"{'Created' if created_profile else 'Updated'} {config}")
     print(f"Updated {catalog}")
     if created_profile and not (args.base_url or "").strip():
         print("Fill base_url in the new profile before starting Codex.")

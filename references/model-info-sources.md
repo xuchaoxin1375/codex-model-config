@@ -21,7 +21,7 @@
 | 第三方字段 | 写到目录/配置 |
 |---|---|
 | `limit.context/input/output` | `context_window` / `max_context_window`（再经官方复核） |
-| `modalities.input/output`（`text,image,audio,video,pdf`） | `--input-modalities` |
+| `modalities.input/output`（第三方源可含 `video`/`pdf`，写目录只取 `text,image,audio` 子集） | `--input-modalities` |
 | `reasoning` / `tool_call` / `structured_output` | 是否配思考档、是否期待工具调用（`tool_call=true` 不等于 `apply_patch freeform` 可用） |
 | `release_date/last_updated/status/deprecated` | 判断模型是否下架、别名是否漂移 |
 | `pricing` | 仅做量级参考，不进目录 |
