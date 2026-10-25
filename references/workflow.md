@@ -99,3 +99,18 @@ env_key = "<ENV_VAR>"
 | `--default-reasoning-level` | 目录 JSON | `default_reasoning_level` |
 | `--reasoning-effort` | profile TOML | `model_reasoning_effort` |
 | 模板注释块 | 仅 skill 读默认 | Codex 不解析 |
+
+## 新模型信息收集模板
+
+用户描述不完整时用下面模板收集，必填两项，其余可空、不填按默认值。默认值与字段含义见 [model-catalog-json.md](model-catalog-json.md)，命令见 [usage.md](usage.md)。
+
+1. 模型 slug（必填，如 grok-4.6）：
+2. base_url（必填，如 https://example.invalid/v1）：
+3. provider id（可选，默认按模型系列推导，如 grok；勿用 openai/ollama/lmstudio）：
+4. API Key（可选，给出则写入 ~/.config/models.env，不回显；TOML 只保留 env_key）：
+5. env 变量名（可选，默认 `<PROVIDER>_API_KEY`）：
+6. 上下文窗口/思考档（可选；有官方值填，无则查官方，查不到用 258400 + low,medium,high,xhigh,max）：
+7. 输入模态（可选，默认 text,image；按官方模态加 audio；本版 Codex 目录不支持 video）：
+8. 工具偏好（可选，默认去 `code_mode_only`、`apply_patch=freeform`、`shell=unified_exec`、`web_search=text`）：
+9. 提供方调优（可选，如 query_params/headers/重试/超时/websockets）：
+10. 生效范围（可选，默认新建 `~/.codex/<provider>.config.toml`；仅明确要求才 `--as-default`）：
