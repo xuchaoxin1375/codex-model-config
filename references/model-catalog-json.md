@@ -82,6 +82,16 @@ bundled 一条大约 35–40 个键。下面这些决定窗口、档位、工具
 
 修法：目录里该条改 `"use_responses_lite": false`，顶层配 `web_search = "live"`，重启 Codex 后复抓确认。用 `--clone-from` 克隆旗舰骨架时容易把 `true` 一并继承，合成后要显式改回 `false`。网关须原样透传顶层 `tools`；透传后上游仍拒收，按 [tool-calling.md](tool-calling.md) 关搜索或换 MCP 搜索。
 
+来源与证据：字段取值见官方 `models.json`；Lite 把整份工具挪进 `additional_tools`、省略顶层 `tools` 见 [openai/codex#32086](https://github.com/openai/codex/issues/32086)（源码 `codex-rs/core/src/client.rs`）；请求头 `x-openai-internal-codex-responses-lite` 是客户端走该分支的标记。公开配置文档没有这层影响，结论以抓包为准。
+
+怎么确认生效：
+
+1. 配置层：`codex -c model_catalog_json='"/abs/<profile>-models.json"' debug models`，该条 `use_responses_lite` 为 `false`。
+2. 请求层：`base_url` 指本地回显代理跑一次 `exec`（做法见 [case-xiaomi-mimo.md](case-xiaomi-mimo.md)），请求头无 `x-openai-internal-codex-responses-lite`、顶层 `tools` 含 `web_search`、`input[]` 无 `additional_tools`。
+3. 行为层：`codex exec --json "<时效问题>"` 出现 `"type":"web_search"` 的 item 事件，回答带 `url_citation`。
+
+负对照与回滚：`web_search = "disabled"` 时顶层 `tools` 应无 `web_search`、搜索事件消失，改回 `live` 恢复；回滚删掉 `model_catalog_json` 或把字段改回 `true`。`codex --search` 只在 TUI 生效，`codex exec` 不接受该参数，验证一律走配置。
+
 ### apply_patch 擅长与否：判定与适配
 
 目录只能**打开**工具，不能让模型学会 patch 格式。是否给某条 `freeform`，按实测定，不要按供应商宣传定：
