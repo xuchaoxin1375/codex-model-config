@@ -20,6 +20,7 @@
 Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜索并返回结果，模型只发查询、读结果。
 
 - 模式：`cached`（默认，用 OpenAI 维护的索引）、`live`（`config.toml` 写 `web_search = "live"`，或单次 `codex --search`）、`indexed`、`disabled`。
+- 目录里 `use_responses_lite` 为 `true` 时该工具不进请求：顶层 `tools` 为空，`input[].additional_tools` 里也没有它，配置看着生效实则没有；判定与修法见 [model-catalog-json.md](model-catalog-json.md) 的 use_responses_lite 小节。
 - `web_search_tool_type` 只决定该工具形态：`text` vs `text_and_image`（图片搜索内容形态），默认 `text`。
 - 它是托管工具，与沙箱命令网络**相互独立**：不走 permission 的网络代理和域名白名单，命令网络关了也可用。用 `web_search`、`tools.web_search.allowed_domains`、托管 `allowed_web_search_modes` 配置。
 - 所有搜索结果一律当不可信输入。
@@ -42,13 +43,13 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 |---|---|---|---|
 | 改文件 patch | `apply_patch_tool_type`、`tool_mode` | —（`--apply-patch-type` 写目录） | 模型实测是否会打 patch 格式 |
 | shell / curl 取 URL | `shell_type` | 沙箱 `network_access`、审批策略 | 本机网络 / 代理 |
-| 托管搜索 | `web_search_tool_type`（只定形态） | `web_search` 模式、`tools.web_search.allowed_domains` | OpenAI 后端；自定义站需 `/alpha/search` 端点 |
+| 托管搜索 | `web_search_tool_type`（只定形态）、`use_responses_lite=false` | `web_search` 模式、`tools.web_search.allowed_domains` | OpenAI 后端；自定义站需 `/alpha/search` 端点 |
 | standalone 搜索 | — | `web_search = "live"` | `supports_standalone_web_search = true` + 模型/运行时支持 |
 | 延迟工具发现 | `supports_search_tool`（注意：**不是** web search 开关，管 MCP / app 扩展工具的 `tool_search` 发现面） | Feature `ToolSearch` | — |
 
 ## 排障
 
-- 要搜索但模型没调：先查 `web_search` 模式和提供方 standalone 能力，再查目录；只改目录救不了没实现 `/alpha/search` 的上游。
+- 要搜索但模型没调：先查 `web_search` 模式、目录 `use_responses_lite` 和提供方 standalone 能力，再查其余字段；只改目录救不了没实现 `/alpha/search` 的上游。
 - `supports_search_tool = false`：只关延迟工具发现，不关托管搜索，两者别混淆。
 - 沙箱里 `curl` 不通：看 `sandbox_mode` / `network_access` / 审批（见 [codex-sandbox-permissions.md](codex-sandbox-permissions.md)），不是目录问题。
 

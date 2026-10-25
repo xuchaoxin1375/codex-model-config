@@ -64,9 +64,23 @@ bundled 一条大约 35–40 个键。下面这些决定窗口、档位、工具
 | `include_apps_usage_instructions` | 是否注入 apps 说明 | 同上（缺省反而是 `true`，脚本显式打开） | 同上 |
 | `supports_search_tool` | 是否暴露延迟工具发现（MCP / app 扩展工具的 `tool_search` 面；**不是** web search 开关，详见 [tool-calling.md](tool-calling.md)） | 有扩展工具生态 `true`；无搜索模型用 `--no-supports-search-tool` | 关掉后模型看不到延迟发现的扩展工具 |
 | `web_search_tool_type` | 搜索工具形态 | 缺省脚本补 `text`；仅供应商文档化图片搜索才用 `text_and_image`（`--web-search-type`）；Grok 保持 `text` | 误抄别家形态可能不稳 |
+| `use_responses_lite` | 工具塞进顶层 `tools` 还是 `input[].additional_tools` | 第三方网关写 `false`；`--clone-from` 旗舰后显式改回 | `true` 时托管 `web_search` 静默不下发，见下节 |
 | `visibility` / `supported_in_api` | 选择器可见、API 可用 | `list` / `true` | `hide` 则选择器里看不到 |
 
 本 skill 合成第三方条目时：克隆一条**直连工具**骨架（优先 `gpt-5.5` 这类），去掉 `code_mode_only`，并把三套 `include_*` 打开。显式 `--clone-from gpt-6-astra` 才会保留 code mode。
+
+### use_responses_lite 与工具下发
+
+这个字段决定工具塞进请求的哪一层，不是无害的兼容标记：
+
+- `true`（Responses Lite）：工具进 `input[].additional_tools`，顶层 `tools` 为空或省略。
+- `false`：工具回到顶层 `tools`，托管 `web_search` 才以 `{"type":"web_search","external_web_access":true}` 出现。
+
+后果：第三方网关通常只实现 `/v1/responses` 的顶层 `tools`，也没有 `/v1/alpha/search`。Lite 生效时 `web_search = "live"` 配了也不发工具，模型退回 shell `curl` 抓页面，表现为“搜索时灵时不灵、答案靠爬网页”。
+
+判定：把 `base_url` 临时指向本地回显代理跑一次 `exec`，看请求体。顶层没有 `tools`、`additional_tools` 里只有 `functions`/`clock` 一类命名空间，即 Lite 生效；顶层出现 `web_search` 才算下发。
+
+修法：目录里该条改 `"use_responses_lite": false`，顶层配 `web_search = "live"`，重启 Codex 后复抓确认。用 `--clone-from` 克隆旗舰骨架时容易把 `true` 一并继承，合成后要显式改回 `false`。网关须原样透传顶层 `tools`；透传后上游仍拒收，按 [tool-calling.md](tool-calling.md) 关搜索或换 MCP 搜索。
 
 ### apply_patch 擅长与否：判定与适配
 
@@ -98,7 +112,6 @@ bundled 一条大约 35–40 个键。下面这些决定窗口、档位、工具
 | `support_verbosity` / `default_verbosity` | 只决定发不发 `text.verbosity`；仅上游官方文档化才开，不跨供应商抄 |
 | `default_reasoning_summary` | 推理摘要默认档；跟走 |
 | `supports_image_detail_original` | 原图细节；跟走 |
-| `use_responses_lite` | 精简 Responses 形态；跟走 |
 | `node_repl_*` | Node REPL 相关开关；跟走 |
 | `model_specialty` | 模型专长标注；跟走 |
 | `experimental_supported_tools` | 新模型才有的实验工具（如 `clock`）；不认识的客户端会忽略，不盲目照抄 `gpt-6-astra` |

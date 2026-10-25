@@ -25,7 +25,7 @@ description: >
 - 目录 `slug` 必须和 TOML 的 `model` 全等（含前缀如 `x-ai/`）。
 - `wire_api` 只有 `responses`（2026-02 起 `chat` 已移除，残留即启动失败）。
 - 自定义目录整份替换该进程内置目录：先 `--bootstrap-bundled` 导出完整目录再追加。`model_catalog_json` 必须是绝对路径的专用文件（`<profile>-models.json`），禁用 `models.json`/`models_cache.json`。
-- 工具字段语义见 [references/model-catalog-json.md](references/model-catalog-json.md)：默认去 `code_mode_only`、开 skills/plugin/apps 说明；空 `apply_patch`/`default` shell 补 `freeform`/`unified_exec`；`web_search` 缺省 `text`。Grok 例外：`apply_patch` 实测全失败则该条保持 `null`，`shell_type` 仍 `unified_exec`，`web_search` 仍 `text`。
+- 工具字段语义见 [references/model-catalog-json.md](references/model-catalog-json.md)：默认去 `code_mode_only`、开 skills/plugin/apps 说明；空 `apply_patch`/`default` shell 补 `freeform`/`unified_exec`；`web_search` 缺省 `text`。第三方网关目录一律 `use_responses_lite = false`：`true` 时工具不进顶层 `tools`，托管搜索静默不下发（见该文“use_responses_lite 与工具下发”）。Grok 例外：`apply_patch` 实测全失败则该条保持 `null`，`shell_type` 仍 `unified_exec`，`web_search` 仍 `text`。
 - `support_verbosity` 仅上游官方文档化才开；不要跨供应商抄 `verbosity`。
 - 密钥只用 `env_key`，本体进 `~/.config/models.env`（`600`），不进 TOML，不回显。
 - 不要跑供应商 `curl|bash` / `irm|iex` 安装器，除非用户明确要求。
