@@ -75,15 +75,15 @@ env_key = "<ENV_VAR>"
 | 新增模型 | `~/.codex/<provider-id>.config.toml` |
 | 设全局默认（`--as-default`） | `~/.codex/config.toml` |
 | 用 `--profile` | `~/.codex/<name>.config.toml` |
-| 只改窗口 | 该 profile + `models.json` |
+| 只改窗口 | 生效的默认配置或 profile + 其 `model_catalog_json` 指向的专用目录（如 `<profile>-models.json`） |
 
 `model_providers` 不可写项目 `.codex/config.toml`。三客户端共用用户配置，改完重载并开新会话。
 
 ## 同供应商多模型（选择器内可切换）
 
-一家供应商多个可用模型（如 `mimo-v2.5` + `mimo-v2.5-pro`）时，推荐做法：**一个 profile，一份目录放多条**，选择器内直接切换。TOML 里 `model` 只是默认项，目录里每条独立 carrying 各自的窗口、档位、工具偏好。
+一家供应商多个可用模型（如 `mimo-v2.5` + `mimo-v2.5-pro`）且窗口和压缩预算相同时，可用**一个 profile，一份目录放多条**，选择器内直接切换。目录每条声明各自的窗口、档位和工具偏好，但顶层 TOML 的窗口覆盖和压缩阈值仍作用于所选模型，具体规则见 [窗口指南](context-window-guide.md)。
 
-做法：第一个模型正常跑完 `init_profile.py` + `adjust_context_window.py`；之后每个模型只跑 `adjust_context_window.py --catalog-only`（只增改目录条目，不碰 TOML，`model=` 对不上也不会报错）。命令见 [usage.md](usage.md)。
+做法：第一个模型正常跑完 `init_profile.py` + `adjust_context_window.py`，确认 TOML 已引用目录；之后每个模型只跑 `adjust_context_window.py --catalog-only`（只增改该目录条目，不碰 TOML，`model=` 对不上也不会报错）。命令见 [usage.md](usage.md)。
 
 例外：两个模型窗口差距大、且你希望各用各的压缩阈值时，才各建一个 profile（各持一份目录）。不要用 `--force` 把第二个模型塞进第一个 profile——窗口键会被写到错的模型上。
 

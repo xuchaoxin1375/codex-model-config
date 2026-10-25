@@ -19,10 +19,10 @@
 | `references/template.config.toml` | profile 模板 |
 | [references/workflow.md](references/workflow.md) | 接入顺序与字段分工（无命令块） |
 | [references/model-catalog-json.md](references/model-catalog-json.md) | 字段主次唯一说明 |
-| [references/tool-calling.md](references/tool-calling.md) | 工具调用：改文件/搜索三条路/依赖 |
+| [references/tool-calling.md](references/tool-calling.md) | 工具调用：改文件、搜索传输与依赖、后端和会话入口的验证边界 |
 | [references/catalog-source.md](references/catalog-source.md) | 目录来源 |
 | [references/model-info-sources.md](references/model-info-sources.md) | 模型信息源（查规格用） |
-| [references/context-window-guide.md](references/context-window-guide.md) | 窗口公式 |
+| [references/context-window-guide.md](references/context-window-guide.md) | 原始/有效窗口、压缩预算、profile 作用域与验证边界 |
 | [references/常见陷阱.md](references/常见陷阱.md) | 陷阱清单 |
 | [references/codex-sandbox-permissions.md](references/codex-sandbox-permissions.md) | 沙箱/审批 |
 | [references/dev-guide.md](references/dev-guide.md) | 本 skill 开发规范（测试/兼容/提交） |

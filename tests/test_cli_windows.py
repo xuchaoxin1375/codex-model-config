@@ -110,10 +110,10 @@ class CleanedPathTests(unittest.TestCase):
     def test_strips_spaces_around_path_entries(self):
         original = os.environ.get("PATH")
         try:
-            os.environ["PATH"] = " C:\\foo ;C:\\bar; "
+            entries = [str(Path("first")), str(Path("second"))]
+            os.environ["PATH"] = f" {entries[0]} {os.pathsep}{entries[1]}{os.pathsep} "
             parts = cleaned_path().split(os.pathsep)
-            self.assertEqual(parts[0], "C:\\foo")
-            self.assertEqual(parts[1], "C:\\bar")
+            self.assertEqual(parts, entries)
         finally:
             if original is None:
                 os.environ.pop("PATH", None)
@@ -933,18 +933,15 @@ class CatalogPathTests(unittest.TestCase):
             self.assertEqual(path, (home / "yjwd-grok-models.json").resolve())
             self.assertIsNotNone(note)
 
-    def test_explicit_catalog_keeps_reserved_name(self):
+    def test_explicit_catalog_rejects_reserved_name(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             reserved = home / "models.json"
-            path, note = resolve_catalog_path(
-                explicit=str(reserved),
-                config_text="",
-                codex_home=home,
-                profile="yjwd-grok",
-            )
-            self.assertEqual(path, reserved.resolve())
-            self.assertIsNotNone(note)
+            with self.assertRaisesRegex(ValueError, "reserved catalog"):
+                resolve_catalog_path(
+                    explicit=str(reserved), config_text="",
+                    codex_home=home, profile="yjwd-grok",
+                )
 
     def test_existing_toml_catalog_is_kept(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1414,7 +1411,8 @@ class SharedCatalogAndDevTests(unittest.TestCase):
         (home / "mimo.config.toml").write_text(
             'model = "mimo-v2.5"\n'
             'model_provider = "mimo"\n'
-            'model_context_window = 1000000\n',
+            'model_context_window = 1000000\n'
+            f'model_catalog_json = {json.dumps((home / "mimo-models.json").as_posix())}\n',
             encoding="utf-8",
         )
         (home / "mimo-models.json").write_text(

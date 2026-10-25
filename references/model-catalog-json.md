@@ -53,7 +53,7 @@ bundled 一条大约 35–40 个键。下面这些决定窗口、档位、工具
 | `shell_type` | Codex 据此决定暴露哪套 shell 工具 | 现网 bundled 用 `unified_exec`；缺了脚本会补 | 缺失可能直接拒启动；`default` 走旧 shell |
 | `context_window` | 目录声明的基础窗口 | 按官方或 skill 默认 `258400`（`--context-window`） | 与目标不一致则窗口不对 |
 | `max_context_window` | TOML `model_context_window` 能达到的上限 | 与目标值相同（精确命中） | 小于目标则窗口被钳回去 |
-| `effective_context_window_percent` | 可用比例：`context_window × 该百分比` | 精确命中用 `100`（`--effective-percent`） | 沿用 95 会再打 95 折 |
+| `effective_context_window_percent` | 有效预算：`raw_window × 该百分比 / 100`，原始窗口来源见 [窗口指南](context-window-guide.md) | 目标明确为有效预算时可显式用 `100`；省略时保留已有比例 | 95 表示保留 5% 余量，不能把原始与有效窗口混报 |
 | `supported_reasoning_levels` | 选择器里能选哪些思考档 | `--reasoning-levels` 写入 | UI 档位缺几个 |
 | `default_reasoning_level` | 没手选时的目录默认档 | 一般 `medium`（`--default-reasoning-level`） | 默认档不符合预期 |
 | `input_modalities` | 模型可收哪些输入；无 `image` 则不按视觉处理 | 默认 `text,image`；`--input-modalities` 覆盖，只允许 `text,image,audio`（上游 omni 的 `video` 不要照抄，本版 Codex 整份拒读） | 能贴图也不会按视觉模型处理 |
@@ -102,7 +102,7 @@ bundled 一条大约 35–40 个键。下面这些决定窗口、档位、工具
 4. 已知实例：Grok 4.6 当前属此类（见 [常见陷阱.md](常见陷阱.md)）；GPT / DeepSeek 保持 `freeform`。
 5. 网关直接拒收（确定性）：若真实请求返回 `tool type 'custom' is not supported`（本版 Codex 以 `custom` 类型发出 `apply_patch`，Xiaomi 等网关不认），不用试错，直接给 `null`。定位方法：本地回显代理抓请求体看 `tools[]` 的 `type`，见 [case-xiaomi-mimo.md](case-xiaomi-mimo.md)。
 
-脚本行为：`--apply-patch-type null` 会为目标条保留显式 `null`，且全表回填时不覆盖其他条已有的显式 `null`；不传该参数时空值仍补 `freeform`（旧缓存的 `null` 不要照抄）。
+脚本行为：`--apply-patch-type null` 会为目标条保留显式 `null`；已有目标条只改窗口时保留其工具偏好，其他条目保持原样。新建条目或显式重置为 skill 默认值时，空值补 `freeform`（旧缓存的 `null` 不要照抄）。
 
 ## 次要字段（跟克隆源走，不手写）
 

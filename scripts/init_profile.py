@@ -362,7 +362,11 @@ def main() -> int:
         parser.error(f"invalid env var name: {env_key!r}")
     skill_defaults = load_skill_defaults(args.template)
     reasoning_effort = args.reasoning_effort or skill_defaults["reasoning_effort"]
-    context_window = args.context_window or skill_defaults["context_window"]
+    context_window = (
+        args.context_window
+        if args.context_window is not None
+        else skill_defaults["context_window"]
+    )
     if context_window <= 0:
         parser.error("--context-window must be positive")
     compact_limit = compact_limit_for(context_window, skill_defaults["compact_percent"])

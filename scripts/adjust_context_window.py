@@ -32,6 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.10: pip install tomli
@@ -160,8 +161,9 @@ def dump_bundled_catalog(catalog: Path) -> dict[str, Any]:
             check=False,
             capture_output=True,
             env=env,
+            timeout=30,
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(f"failed to run `codex debug models --bundled`: {exc}") from exc
     try:
         stdout = decode_utf8_output(result.stdout)
@@ -251,9 +253,8 @@ def resolve_catalog_path(
         path = Path(explicit).expanduser().resolve()
         note = None
         if is_reserved_catalog(path, codex_home):
-            note = (
-                f"using reserved {path.name}; Codex may reject it. "
-                f"Default catalog is {dedicated.name}"
+            raise ValueError(
+                f"refusing reserved catalog {path.name}; use {dedicated.name}"
             )
         return path, note
     existing = top_level_catalog(config_text)
@@ -263,7 +264,7 @@ def resolve_catalog_path(
         if is_reserved_catalog(path, codex_home):
             return dedicated, (
                 f"model_catalog_json pointed at reserved {path.name}; "
-                f"migrating to {dedicated}. Pass --catalog to keep the existing file."
+                f"migrating to {dedicated}; the reserved file will remain untouched."
             )
         return path, None
     return dedicated, None
@@ -559,7 +560,7 @@ def main() -> int:
         "--context-window",
         type=int,
         default=None,
-        help="target context window; default: skill template 258400",
+        help="raw target context window; keep existing value when omitted, else skill template 258400",
     )
     parser.add_argument(
         "--defaults",
@@ -571,8 +572,8 @@ def main() -> int:
     limit_group.add_argument(
         "--compact-percent",
         type=float,
-        default=90.0,
-        help="compaction limit as %% of context (default: skill template)",
+        default=None,
+        help="compaction limit as %% of effective context (default: skill template 90)",
     )
     parser.add_argument("--codex-home", default=os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
     parser.add_argument(
@@ -609,7 +610,7 @@ def main() -> int:
         "--effective-percent",
         type=int,
         default=None,
-        help="catalog effective_context_window_percent; default: skill template 100",
+        help="catalog effective_context_window_percent; keep existing value, else skill template 100",
     )
     parser.add_argument(
         "--reasoning-effort",
@@ -671,7 +672,7 @@ def main() -> int:
     parser.add_argument(
         "--catalog-only",
         action="store_true",
-        help="only add/update this model's catalog entry; leave the TOML untouched "
+        help="only add/update this model's entry in a catalog already referenced by the TOML; leave the TOML untouched "
         "(for sharing one profile catalog between models)",
     )
     parser.add_argument(
@@ -698,17 +699,21 @@ def main() -> int:
     cache_path = codex_home / "models_cache.json"
 
     skill_defaults = load_skill_defaults()
-    context_window = args.context_window or skill_defaults["context_window"]
-    effective_percent = args.effective_percent or skill_defaults["effective_percent"]
+    context_window = args.context_window if args.context_window is not None else skill_defaults["context_window"]
+    effective_percent = args.effective_percent if args.effective_percent is not None else skill_defaults["effective_percent"]
+    compact_percent = args.compact_percent if args.compact_percent is not None else skill_defaults["compact_percent"]
     reasoning_effort = args.reasoning_effort or skill_defaults["reasoning_effort"]
     if context_window <= 0:
         parser.error("--context-window must be positive")
-    if args.compact_limit is not None and not 0 < args.compact_limit <= context_window:
-        parser.error("--compact-limit must be between 1 and --context-window")
-    if not 0 < args.compact_percent <= 100:
+    if not 0 < compact_percent <= 100:
         parser.error("--compact-percent must be between 0 and 100")
     if not 1 <= effective_percent <= 100:
         parser.error("--effective-percent must be between 1 and 100")
+    effective_window = context_window * effective_percent // 100
+    if effective_window < 1:
+        parser.error("effective context window must be at least 1 token")
+    if args.compact_limit is not None and args.compact_limit <= 0:
+        parser.error("--compact-limit must be positive")
     try:
         reasoning_levels = (
             parse_reasoning_levels(args.reasoning_levels)
@@ -759,12 +764,24 @@ def main() -> int:
             dedicated_catalog_path(codex_home, args.profile).resolve(),
             None,
         )
+    except ValueError as exc:
+        parser.error(str(exc))
     if catalog_note:
         print(f"warning: {catalog_note}", file=sys.stderr)
     try:
         current_model = top_level_model(config_text)
     except tomllib.TOMLDecodeError as exc:
         parser.error(f"{config} is invalid TOML: {exc}")
+
+    if args.catalog_only:
+        reference = top_level_catalog(config_text)
+        if reference is None:
+            parser.error("--catalog-only needs model_catalog_json in the selected TOML; configure the catalog first without --catalog-only")
+        referenced_path = Path(reference).expanduser()
+        if not referenced_path.is_absolute():
+            referenced_path = codex_home / referenced_path
+        if referenced_path.resolve() != catalog.resolve():
+            parser.error("--catalog-only must edit the catalog referenced by model_catalog_json")
 
     if current_model and current_model != args.model and not args.force:
         profile_hits = find_profiles_with_model(codex_home, args.model)
@@ -805,7 +822,10 @@ def main() -> int:
             bootstrapped = True
         else:
             try:
-                root = dump_bundled_catalog(catalog)
+                # Bootstrap in scratch space; preview, refusal, and validation errors
+                # must not create or replace the user's catalog.
+                with tempfile.TemporaryDirectory(prefix="codex-catalog-") as directory:
+                    root = dump_bundled_catalog(Path(directory) / "bundled.json")
             except (OSError, RuntimeError, json.JSONDecodeError) as exc:
                 parser.error(str(exc))
             models = root["models"]
@@ -878,12 +898,30 @@ def main() -> int:
         index = len(models) - 1
         root["models"] = models
 
+    if args.context_window is None and not args.defaults:
+        configured = tomllib.loads(config_text).get("model_context_window") if not args.catalog_only else None
+        existing = configured if configured is not None else models[index].get("context_window")
+        if existing is not None:
+            if not isinstance(existing, int) or isinstance(existing, bool) or existing <= 0:
+                parser.error("existing context window must be a positive integer; pass --context-window")
+            context_window = existing
+    if args.effective_percent is None and not args.defaults:
+        effective_percent = models[index].get("effective_context_window_percent", effective_percent)
+        if not isinstance(effective_percent, int) or isinstance(effective_percent, bool) or not 1 <= effective_percent <= 100:
+            parser.error("existing effective percentage must be between 1 and 100; pass --effective-percent")
+    effective_window = context_window * effective_percent // 100
+    if effective_window < 1:
+        parser.error("effective context window must be at least 1 token")
+    if args.compact_limit is not None and not 0 < args.compact_limit <= effective_window:
+        parser.error("--compact-limit must be between 1 and the effective context window")
     compact = (
         args.compact_limit
         if args.compact_limit is not None
-        else compact_limit_for(context_window, args.compact_percent)
+        else compact_limit_for(effective_window, compact_percent)
     )
     clean_compact = max(1, compact)
+    if clean_compact > context_window * 9 // 10:
+        print("warning: Codex may cap compaction at 90% of the raw context in total scope; see context-window-guide.md", file=sys.stderr)
     print_proposal(
         args.model,
         context_window,
@@ -921,8 +959,10 @@ def main() -> int:
     model["max_context_window"] = context_window
     model["effective_context_window_percent"] = effective_percent
     model["auto_compact_token_limit"] = None
-    model["supported_reasoning_levels"] = build_reasoning_levels(reasoning_levels, model)
-    model["default_reasoning_level"] = default_reasoning
+    if args.reasoning_levels is not None or args.defaults or not model.get("supported_reasoning_levels"):
+        model["supported_reasoning_levels"] = build_reasoning_levels(reasoning_levels, model)
+    if args.default_reasoning_level is not None or args.reasoning_levels is not None or args.defaults or not model.get("default_reasoning_level"):
+        model["default_reasoning_level"] = default_reasoning
     if input_modalities:
         model["input_modalities"] = input_modalities
     if "comp_hash" in model:
@@ -937,7 +977,7 @@ def main() -> int:
         model["apply_patch_tool_type"] = None
     elif args.apply_patch_type == "freeform":
         model["apply_patch_tool_type"] = "freeform"
-    if not args.clone_from:
+    if not args.clone_from and (cloned_from is not None or args.defaults):
         apply_third_party_tool_defaults(
             model,
             apply_patch_type=args.apply_patch_type,
@@ -947,20 +987,20 @@ def main() -> int:
     models[index] = ensure_required_model_fields(
         model,
         pick_tool_capable_skeleton(models),
-        preserve_null_patch=(args.apply_patch_type == "null"),
+        preserve_null_patch=(args.apply_patch_type == "null" or (
+            args.apply_patch_type is None and cloned_from is None and not args.defaults
+        )),
     )
-    for offset, item in enumerate(models):
-        if isinstance(item, dict):
-            if offset == index:
-                continue
-            models[offset] = ensure_required_model_fields(item, preserve_null_patch=True)
+    if not model.get("web_search_tool_type"):
+        model["web_search_tool_type"] = "text"
 
     old_config_text = config_text
     if not args.catalog_only:
         config_text = set_top_level_key(config_text, "model_context_window", context_window)
         config_text = set_top_level_key(config_text, "model_auto_compact_token_limit", clean_compact)
         config_text = set_top_level_key(config_text, "model_catalog_json", catalog_posix(catalog))
-        config_text = set_top_level_key(config_text, "model_reasoning_effort", reasoning_effort)
+        if args.reasoning_effort is not None or args.defaults or "model_reasoning_effort" not in tomllib.loads(config_text):
+            config_text = set_top_level_key(config_text, "model_reasoning_effort", reasoning_effort)
         try:
             tomllib.loads(config_text)
         except tomllib.TOMLDecodeError as exc:
@@ -988,12 +1028,13 @@ def main() -> int:
         print_preview_body(json.dumps(models[index], ensure_ascii=False, indent=2))
         return 0
 
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     if config.exists() and not args.catalog_only:
         shutil.copy2(config, config.with_name(f"{config.name}.bak.{stamp}"))
     if catalog.exists():
         shutil.copy2(catalog, catalog.with_name(f"{catalog.name}.bak.{stamp}"))
     config.parent.mkdir(parents=True, exist_ok=True)
+    catalog.parent.mkdir(parents=True, exist_ok=True)
     catalog.write_text(json.dumps(root, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if not args.catalog_only:
         config.write_text(config_text, encoding="utf-8")

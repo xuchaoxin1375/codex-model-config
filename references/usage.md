@@ -58,11 +58,11 @@ python scripts\init_profile.py --model <slug> --provider <id> --base-url <url> `
 模型已在默认配置里，只改窗口：
 
 ```bash
-python3 scripts/adjust_context_window.py --model deepseek-v4-flash-vision-exp --context-window 400000 --compact-percent 90 --yes
+python3 scripts/adjust_context_window.py --model deepseek-v4-flash-vision-exp --bootstrap-bundled --context-window 400000 --effective-percent 100 --compact-percent 90 --yes
 ```
 
 ```powershell
-python scripts\adjust_context_window.py --model deepseek-v4-flash-vision-exp --context-window 400000 --compact-percent 90 --yes
+python scripts\adjust_context_window.py --model deepseek-v4-flash-vision-exp --bootstrap-bundled --context-window 400000 --effective-percent 100 --compact-percent 90 --yes
 ```
 
 模型在 profile 里、目录缺条目（查不到官方窗口/档位用 `--defaults`）：
@@ -95,7 +95,7 @@ python scripts\adjust_context_window.py --model <slug> --profile <id> --bootstra
   --apply-patch-type freeform
 ```
 
-`--dry-run` 只打印方案；`--force` 仅在 `model=` 对不上时放行；脚本默认去掉 `code_mode_only` 并打开 skills/plugin/apps 说明。
+`--dry-run` 只打印方案，`--dev` 展示差异，二者均不写文件；`--force` 仅在 `model=` 对不上时放行。新条目采用 skill 的工具默认值；已有条目只调窗口时保留推理与工具偏好，其他条目不回填。省略窗口或有效比例时保留已有值，缺失或显式 `--defaults` 时才使用 skill 默认值；精确命中有效预算时显式给有效比例，计算与限制见 [窗口指南](context-window-guide.md)。
 
 同供应商多模型（一份目录多条，选择器内切换，如 Xiaomi 的 `mimo-v2.5` + `mimo-v2.5-pro`）：
 
@@ -111,7 +111,7 @@ python scripts\adjust_context_window.py --model mimo-v2.5 --profile mimo --boots
 python scripts\adjust_context_window.py --model mimo-v2.5-pro --profile mimo --bootstrap-bundled --from-cache --context-window 1000000 --catalog-only --yes
 ```
 
-`--catalog-only` 只增改目录条目、不碰 TOML（窗口差距大才各建 profile）。预览输出（不写文件）：
+`--catalog-only` 只增改 TOML 已引用的目录、不碰 TOML（窗口或压缩预算不同优先分 profile）。预览输出（不写文件）：
 
 ```bash
 python3 scripts/init_profile.py --model <slug> --provider <id> --base-url <url> --dev
@@ -127,7 +127,7 @@ python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/co
 codex --profile <name>
 ```
 
-PowerShell 用脚本打印的 `codex -c '...'` 行，把 stdout 交给 Python 写文件，不要 `>`。`doctor` 不接受 `--profile`。
+PowerShell 用脚本打印的 `codex -c '...'` 行，把 stdout 交给 Python 写文件，不要 `>`。`doctor` 和 `debug models` 不接受 `--profile`；查专用目录按上例显式传 `-c model_catalog_json=...`，启动会话才用 `--profile`。
 
 目录是否真的被加载，看两件事，不要只看命令有没有报错：
 
