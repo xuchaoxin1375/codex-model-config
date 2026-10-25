@@ -49,7 +49,7 @@ description: >
 4. 写目录：`adjust_context_window.py --bootstrap-bundled --from-cache`。工具/模态覆盖（`--apply-patch-type`/`--web-search-type`/`--input-modalities`/`--supports-search-tool`）、同目录多模型（`--catalog-only`）、预览（`--dev`）见 [usage.md](usage.md)，语义见 [model-catalog-json.md](model-catalog-json.md)。
 5. 只改必要顶层键和对应 `[model_providers.<id>]`。
 6. 写入前 TOML/JSON 语法校验；失败中止。
-7. 手写第三方配置先用 `check_profile.py` 扫必改项（空 `base_url` 回退 OpenAI 等），再 `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 [model-catalog-json.md](model-catalog-json.md)），再用 `exec` 打一次真实请求确认网关不拒收（命令见 [usage.md](usage.md)）。
+7. 手写第三方配置先用 `check_profile.py` 扫必改项（空 `base_url` 回退 OpenAI 等），再 `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 [model-catalog-json.md](model-catalog-json.md)），再用 `exec` 打一次真实请求确认网关不拒收（命令见 [usage.md](usage.md)）。web_search 场景按 [tool-calling.md](references/tool-calling.md) 的启用顺序逐项过：目录加载 → 工具下发 → 模式 → 网关能力 → 行为验证。
 8. 重载客户端并开新对话。`--profile` 对 `doctor` 无效；切换提供方后另一组历史仅隐藏。
 
 `--reasoning-levels` 写目录的 `supported_reasoning_levels`，当前档是 TOML 的 `model_reasoning_effort`。窗口公式见 [references/context-window-guide.md](references/context-window-guide.md)。

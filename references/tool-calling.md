@@ -47,9 +47,29 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 | standalone 搜索 | — | `web_search = "live"` | `supports_standalone_web_search = true` + 模型/运行时支持 |
 | 延迟工具发现 | `supports_search_tool`（注意：**不是** web search 开关，管 MCP / app 扩展工具的 `tool_search` 发现面） | Feature `ToolSearch` | — |
 
+## 第三方网关：启用与排查顺序
+
+按顺序过，前一步不成立时后一步改了也白改：
+
+1. **目录是否真的被加载**：`debug models` 的模型集合与字段应等于你的文件；与 `--bundled` 一致说明读的是内置目录（判定见 [usage.md](usage.md) 校验一节）。
+2. **工具是否下发**：目录条目 `use_responses_lite` 必须为 `false`，否则托管 `web_search` 不进请求（见 [model-catalog-json.md](model-catalog-json.md) 的 use_responses_lite 小节）。
+3. **模式是否打开**：profile 顶层（任何 `[table]` 之前）写 `web_search = "live"`；`cached` 只走索引，`disabled` 直接移除工具。
+4. **网关是否支持**：托管工具走 `/v1/responses` 的顶层 `tools`，要求网关原样透传；`supports_standalone_web_search` 是另一条路（`POST /v1/alpha/search`），网关没实现就别开。
+5. **行为是否真的发生**：`exec --json` 出现 `"type":"web_search"` 的 item 事件才算成功；只有 shell `curl` 抓页面，说明仍没走托管搜索。
+
+最小配置三处，缺一不可：
+
+| 位置 | 键 | 值 |
+|---|---|---|
+| profile TOML 顶层 | `web_search` | `"live"` |
+| 目录条目 | `use_responses_lite` | `false` |
+| 目录条目 | `web_search_tool_type` | `"text"`（图片搜索才 `text_and_image`） |
+
+可选：`[tools.web_search]` 的 `context_size`、`allowed_domains`。`supports_search_tool` 管的是延迟工具发现，与托管搜索无关，不要为搜索去动它。
+
 ## 排障
 
-- 要搜索但模型没调：先查 `web_search` 模式、目录 `use_responses_lite` 和提供方 standalone 能力，再查其余字段；只改目录救不了没实现 `/alpha/search` 的上游。
+- 要搜索但模型没调：按上一节的顺序逐项过，只改目录救不了没实现 `/alpha/search` 的上游。
 - `supports_search_tool = false`：只关延迟工具发现，不关托管搜索，两者别混淆。
 - 沙箱里 `curl` 不通：看 `sandbox_mode` / `network_access` / 审批（见 [codex-sandbox-permissions.md](codex-sandbox-permissions.md)），不是目录问题。
 

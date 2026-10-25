@@ -126,6 +126,13 @@ codex --profile <name>
 
 PowerShell 用脚本打印的 `codex -c '...'` 行，把 stdout 交给 Python 写文件，不要 `>`。`doctor` 不接受 `--profile`。
 
+目录是否真的被加载，看两件事，不要只看命令有没有报错：
+
+- `debug models` 与 `debug models --bundled` 的模型集合一致 → 读的是内置目录，自定义文件没生效。
+- 改目录里的显眼字段（`display_name` / `context_window` / `use_responses_lite`）后重跑，输出跟着变才算读到。
+
+常见假生效：键写在 profile 文件但启动没带 `--profile`；路径用了 `~` 或相对路径；改完没重启进程；TOML `model` 与目录 `slug` 不匹配（走 fallback 元数据，看着像没生效）。`debug models` 同样不接受 `--profile`，验证 profile 里的目录要把该路径用 `-c` 传进去。
+
 `debug models` 只证明目录可读。配完必须再打一次真实请求（网关可能拒收某些工具类型，目录校验看不出来）：
 
 ```bash
