@@ -37,6 +37,7 @@ INFO = "INFO"
 OPENAI_HOST_SUFFIX = "openai.com"
 OPENAI_NATIVE_SERIES = {"gpt"}
 ALLOWED_MODALITIES = ("text", "image", "audio")
+WEB_SEARCH_MODES = ("cached", "live", "indexed", "disabled")
 INCLUDE_FLAGS = (
     "include_skills_usage_instructions",
     "include_plugin_usage_instructions",
@@ -107,6 +108,7 @@ def check_toml(
     *,
     env_file: Path,
     check_env: bool,
+    is_default_config: bool = False,
 ) -> tuple[list[Finding], dict[str, Any]]:
     """Validate the profile TOML. Returns (findings, context for catalog)."""
     findings: list[Finding] = []
@@ -227,11 +229,22 @@ def check_toml(
             )
 
     for key in ("sandbox_mode", "approval_policy"):
-        if key in doc:
+        if key in doc and not is_default_config:
             findings.append(
                 Finding(WARNING, "W_SANDBOX_IN_PROFILE", f"{key} lives in the provider profile.",
                         "沙箱/审批不要写进提供方 profile,只改用户默认 config.toml 或本次 CLI 参数")
             )
+
+    web_search = doc.get("web_search")
+    if web_search is not None:
+        if not isinstance(web_search, str) or web_search not in WEB_SEARCH_MODES:
+            findings.append(
+                Finding(WARNING, "W_WEB_SEARCH_MODE",
+                        f"web_search={web_search!r} is not one of {', '.join(WEB_SEARCH_MODES)}.",
+                        "顶层 web_search 只接受 cached/live/indexed/disabled;第三方网关要实时搜索用 live")
+            )
+        else:
+            ctx["web_search"] = web_search
 
     catalog_raw = doc.get("model_catalog_json")
     if isinstance(section, dict) and isinstance(section.get("model_catalog_json"), str):
@@ -262,12 +275,15 @@ def check_toml(
     else:
         findings.append(
             Finding(INFO, "I_NO_CATALOG", "model_catalog_json is not set; built-in menu applies.",
-                    "未知 slug 走 fallback 窗口约 272000x95%%;要精确窗口/档位/工具再配专用 catalog")
+                    "未知 slug 走 fallback 窗口约 272000x95%%;内置条目可能带 use_responses_lite=true,"
+                    "第三方网关配搜索前先用 debug models 看该条")
         )
     return findings, ctx
 
 
-def check_catalog_entry(entry: dict[str, Any], *, model: str) -> list[Finding]:
+def check_catalog_entry(
+    entry: dict[str, Any], *, model: str, web_search_mode: str = "cached"
+) -> list[Finding]:
     findings: list[Finding] = []
     if not isinstance(entry.get("shell_type"), str) or not entry.get("shell_type"):
         findings.append(
@@ -280,6 +296,22 @@ def check_catalog_entry(entry: dict[str, Any], *, model: str) -> list[Finding]:
                     f"catalog entry {model!r} is code_mode_only.",
                     "shell/apply_patch/MCP/skills 会被收到嵌套工具里;注释 catalog 反而正常即是此因,除非有意保留")
         )
+    lite = entry.get("use_responses_lite")
+    if web_search_mode != "disabled":
+        if lite is True:
+            findings.append(
+                Finding(WARNING, "W_RESPONSES_LITE",
+                        f"catalog entry {model!r} has use_responses_lite=true.",
+                        "托管 web_search 不会进顶层 tools;第三方网关用 adjust_context_window.py "
+                        "--responses-lite false,或直接把该条改成 false")
+            )
+        else:
+            findings.append(
+                Finding(INFO, "I_WEB_SEARCH_SUMMARY",
+                        f"web_search={web_search_mode}, use_responses_lite={lite!r}, "
+                        f"web_search_tool_type={entry.get('web_search_tool_type')!r}.",
+                        "目录层可下发托管搜索;网关是否原样透传仍要用 exec --json 看 web_search 事件")
+            )
     modalities = entry.get("input_modalities")
     if isinstance(modalities, list):
         bad = [m for m in modalities if m not in ALLOWED_MODALITIES]
@@ -341,7 +373,12 @@ def check_profile_file(
         doc = load_toml(path)
     except ValueError as exc:
         return [Finding(ERROR, "E_TOML_PARSE", str(exc), "先修 TOML 语法,命令见 usage.md 校验节")]
-    findings, ctx = check_toml(doc, env_file=env_file, check_env=check_env)
+    findings, ctx = check_toml(
+        doc,
+        env_file=env_file,
+        check_env=check_env,
+        is_default_config=path.name == "config.toml",
+    )
     if any(f.code in ("E_PROVIDER_MISSING", "E_MODEL_MISSING", "E_TOML_PARSE") for f in findings):
         return findings
     catalog_path = catalog_override or ctx.get("catalog_path")
@@ -365,7 +402,9 @@ def check_profile_file(
                         "slug 必须与 model= 全等,含 x-ai/ 这类前缀;窗口/档位/工具全不生效的常见根因")
             )
         else:
-            findings += check_catalog_entry(entry, model=ctx["model"])
+            findings += check_catalog_entry(
+                entry, model=ctx["model"], web_search_mode=ctx.get("web_search", "cached")
+            )
     return findings
 
 

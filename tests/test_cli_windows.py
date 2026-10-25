@@ -1277,6 +1277,24 @@ class WebSearchFlagsTests(unittest.TestCase):
             self.assertEqual(self._run_adjust(home), 0)
             self.assertEqual(self._entry(home).get("web_search_tool_type"), "text")
 
+    def test_responses_lite_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_entry(
+                tmp, {"slug": "grok-4.6", "context_window": 1000, "use_responses_lite": True}
+            )
+            self.assertEqual(self._run_adjust(home, "--responses-lite", "false"), 0)
+            self.assertIs(self._entry(home).get("use_responses_lite"), False)
+            self.assertEqual(self._run_adjust(home, "--responses-lite", "true"), 0)
+            self.assertIs(self._entry(home).get("use_responses_lite"), True)
+
+    def test_responses_lite_default_is_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_entry(
+                tmp, {"slug": "grok-4.6", "context_window": 1000, "use_responses_lite": True}
+            )
+            self.assertEqual(self._run_adjust(home), 0)
+            self.assertIs(self._entry(home).get("use_responses_lite"), True)
+
     def test_no_supports_search_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = self._home_with_entry(tmp, {"slug": "grok-4.6", "context_window": 1000})
@@ -1734,6 +1752,17 @@ class CheckProfileTests(unittest.TestCase):
                                               check_env=False, catalog_override=None)
             self.assertIn("W_ENV_KEY_DEFAULT", [f.code for f in findings])
 
+    def test_default_config_allows_sandbox(self):
+        import check_profile as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            text = self._toml().replace(
+                'model = "grok-4.6"', 'sandbox_mode = "read-only"\nmodel = "grok-4.6"', 1)
+            path = self._write(tmp, "config.toml", text)
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+        self.assertNotIn("W_SANDBOX_IN_PROFILE", [f.code for f in findings])
+
     def test_catalog_checks(self):
         import check_profile as mod
 
@@ -1755,6 +1784,33 @@ class CheckProfileTests(unittest.TestCase):
         self.assertIn("W_INCLUDES_OFF", codes)
         self.assertIn("W_VISIBILITY", codes)
         self.assertNotIn("E_CATALOG_SLUG", codes)
+
+    def test_catalog_lite_warns_when_search_enabled(self):
+        import check_profile as mod
+
+        catalog = {"models": [
+            {"slug": "grok-4.6", "shell_type": "unified_exec",
+             "use_responses_lite": True, "web_search_tool_type": "text",
+             "apply_patch_tool_type": "freeform",
+             "include_skills_usage_instructions": True,
+             "include_plugin_usage_instructions": True,
+             "include_apps_usage_instructions": True,
+             "context_window": 300000},
+        ]}
+        with tempfile.TemporaryDirectory() as tmp:
+            cat = self._write(tmp, "yjwd-grok-models.json", json.dumps(catalog))
+            text = self._toml(catalog=cat.as_posix()).replace(
+                'model = "grok-4.6"', 'web_search = "live"\nmodel = "grok-4.6"', 1)
+            path = self._write(tmp, "p.config.toml", text)
+            findings = mod.check_profile_file(path, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            self.assertIn("W_RESPONSES_LITE", [f.code for f in findings])
+            disabled = self._write(
+                tmp, "d.config.toml",
+                text.replace('web_search = "live"', 'web_search = "disabled"'))
+            findings = mod.check_profile_file(disabled, env_file=Path(tmp) / "models.env",
+                                              check_env=False, catalog_override=None)
+            self.assertNotIn("W_RESPONSES_LITE", [f.code for f in findings])
 
     def test_catalog_slug_mismatch(self):
         import check_profile as mod

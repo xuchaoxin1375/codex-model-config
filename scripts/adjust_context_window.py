@@ -15,6 +15,8 @@ not gpt-6-astra `code_mode_only`) unless --clone-from is explicit.
 When apply_patch_tool_type is empty or shell_type is default/missing, fill
 apply_patch_tool_type=freeform and shell_type=unified_exec so Codex exposes
 native file edits instead of Python/shell rewrites.
+Third-party gateways also need --responses-lite false, otherwise hosted
+web_search stays in Responses Lite and never reaches top-level tools.
 Backups are written beside the edited files.
 """
 
@@ -641,6 +643,13 @@ def main() -> int:
         help="catalog web_search_tool_type override; default keeps skeleton or text",
     )
     parser.add_argument(
+        "--responses-lite",
+        choices=("true", "false"),
+        default=None,
+        help="catalog use_responses_lite override; third-party gateways need false so hosted "
+        "web_search enters top-level tools. Default: leave unchanged",
+    )
+    parser.add_argument(
         "--supports-search-tool",
         action="store_true",
         default=None,
@@ -920,6 +929,8 @@ def main() -> int:
         model["comp_hash"] = f"{args.model}-{context_window}"
     if args.web_search_type:
         model["web_search_tool_type"] = args.web_search_type
+    if args.responses_lite is not None:
+        model["use_responses_lite"] = args.responses_lite == "true"
     if supports_search_tool is not None:
         model["supports_search_tool"] = supports_search_tool
     if args.apply_patch_type == "null":

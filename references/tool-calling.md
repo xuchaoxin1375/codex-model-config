@@ -52,7 +52,7 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 按顺序过，前一步不成立时后一步改了也白改：
 
 1. **目录是否真的被加载**：`debug models` 的模型集合与字段应等于你的文件；与 `--bundled` 一致说明读的是内置目录（判定见 [usage.md](usage.md) 校验一节）。
-2. **工具是否下发**：目录条目 `use_responses_lite` 必须为 `false`，否则托管 `web_search` 不进请求（见 [model-catalog-json.md](model-catalog-json.md) 的 use_responses_lite 小节）。
+2. **工具是否下发**：目录条目 `use_responses_lite` 必须为 `false`，否则托管 `web_search` 不进请求（见 [model-catalog-json.md](model-catalog-json.md) 的 use_responses_lite 小节）；脚本修复用 `--responses-lite false`。
 3. **模式是否打开**：profile 顶层（任何 `[table]` 之前）写 `web_search = "live"`；`cached` 只走索引，`disabled` 直接移除工具。
 4. **网关是否支持**：托管工具走 `/v1/responses` 的顶层 `tools`，要求网关原样透传；`supports_standalone_web_search` 是另一条路（`POST /v1/alpha/search`），网关没实现就别开。
 5. **行为是否真的发生**：`exec --json` 出现 `"type":"web_search"` 的 item 事件才算成功；只有 shell `curl` 抓页面，说明仍没走托管搜索。
@@ -66,6 +66,8 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 | 目录条目 | `web_search_tool_type` | `"text"`（图片搜索才 `text_and_image`） |
 
 可选：`[tools.web_search]` 的 `context_size`、`allowed_domains`。`supports_search_tool` 管的是延迟工具发现，与托管搜索无关，不要为搜索去动它。
+
+体检入口：先跑 `check_profile.py`（见 [usage.md](usage.md) §4），它会校验顶层 `web_search` 取值；目录条目 `use_responses_lite=true` 时给 `W_RESPONSES_LITE`，`false` 时打印 `I_WEB_SEARCH_SUMMARY`。静态检查通过后再按上面的顺序做真实请求。
 
 ## 排障
 

@@ -52,6 +52,7 @@ model = "<slug>"
 model_provider = "<id>"
 preferred_auth_method = "apikey"
 model_reasoning_effort = "medium"
+web_search = "live" # 网关支持托管搜索时；上游拒收则改 disabled
 model_catalog_json = "/absolute/path/to/<profile>-models.json"
 
 [model_providers.<id>]
