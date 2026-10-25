@@ -9,6 +9,11 @@
 # provider-id
 model_provider = "provider-id" 
 
+# 联网搜索：disabled / cached / indexed / live
+# 仅顶层开关不够：模型目录标了 use_responses_lite=true 时工具不进顶层 tools，
+# 需用 model_catalog_json 关掉该标记才生效
+web_search = "live"
+
 # BEGIN skill.codex-model-config
 # 本 skill 识读的默认值；Codex 不解析这段注释。
 # 主流模型至少按 258400 上下文 + low/medium/high/xhigh/max 五档思考。
