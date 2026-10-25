@@ -79,7 +79,9 @@ python3 scripts/adjust_context_window.py --model grok-4.6 --profile yjwd-grok --
 python3 scripts/adjust_context_window.py --model <slug> --profile <id> --bootstrap-bundled --from-cache --yes \
   --input-modalities text,image \
   --web-search-type text \
+  --responses-lite false \
   --apply-patch-type freeform
+# 第三方网关必须 --responses-lite false（否则托管 web_search 不进顶层 tools）；OpenAI 官方模型保持默认
 # Grok 实测 patch 全失败时：--apply-patch-type null
 # 关延迟工具发现（非 web search 开关）：--no-supports-search-tool
 # 音频输入模型加 audio；不要写 video（本版 Codex 整份拒读）
@@ -89,6 +91,7 @@ python3 scripts/adjust_context_window.py --model <slug> --profile <id> --bootstr
 python scripts\adjust_context_window.py --model <slug> --profile <id> --bootstrap-bundled --from-cache --yes `
   --input-modalities "text,image" `
   --web-search-type text `
+  --responses-lite false `
   --apply-patch-type freeform
 ```
 
@@ -120,7 +123,7 @@ python3 scripts/adjust_context_window.py --model <slug> --profile <id> --context
 ```bash
 codex --strict-config doctor
 codex -c model_catalog_json='"/home/<user>/.codex/<profile>-models.json"' debug models > /tmp/codex-models-debug.json
-python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/codex-models-debug.json").read_text()); m=next(x for x in data["models"] if x["slug"]=="<slug>"); print({k:m.get(k) for k in ["slug","context_window","max_context_window","effective_context_window_percent","input_modalities","apply_patch_tool_type","shell_type","web_search_tool_type","tool_mode"]})'
+python3 -c 'import json; from pathlib import Path; data=json.loads(Path("/tmp/codex-models-debug.json").read_text()); m=next(x for x in data["models"] if x["slug"]=="<slug>"); print({k:m.get(k) for k in ["slug","context_window","max_context_window","effective_context_window_percent","input_modalities","apply_patch_tool_type","shell_type","web_search_tool_type","use_responses_lite","tool_mode"]})'
 codex --profile <name>
 ```
 
@@ -147,6 +150,17 @@ codex --profile <name> exec --skip-git-repo-check -s read-only -c approval_polic
 
 收尾：重载 VS Code / 桌面端并开新对话；旧会话保留启动时的目录和窗口。
 
+改完让配置生效，按宿主分层，退出 TUI 不等于重启后台服务：
+
+| 宿主 | 何时读配置 | 怎么做 |
+|---|---|---|
+| `codex` TUI / `codex exec` | 进程启动 | 退出重开；要完全隔离用 `codex --no-daemon` |
+| 共享 app-server daemon | daemon 启动 | `codex app-server daemon restart`；`stop` 也行，下次自动拉起 |
+| VSCode 扩展 | 扩展自己的 app-server 启动 | `Developer: Reload Window`，或直接关窗口 |
+| Desktop App | 应用内 app-server 启动 | 完全退出（含托盘）再启动 |
+
+判定当前有没有 daemon：`codex app-server daemon version`。报连接失败就是没有，退出 TUI 重开即可；有输出说明它还活着，只重开 TUI 仍用旧配置。残留 socket 让该命令报错时先 `daemon restart`，仍不行再按 PID 结束那一个 `codex.exe`，不要批量杀。改前改后各跑一次，看运行版本或启动时间变化即可确认换新。
+
 ## 4. 手写第三方配置静态检查（`check_profile.py`）
 
 只读不写。抓手写配置最常见的遗漏：空 `base_url`（回退 OpenAI）、模板占位符未替换、`wire_api` 非 `responses`、密钥进 TOML、目录 slug 对不上等。`debug models` 之前先跑它：
@@ -162,3 +176,5 @@ python scripts\check_profile.py --file $env:USERPROFILE\.codex\<id>.config.toml 
 ```
 
 退出码：0 无 ERROR（警告放行），1 有 ERROR（`--strict` 下警告也算），2 用法/文件错误；`--json` 出机器可读。字段语义与判定依据见 [model-catalog-json.md](model-catalog-json.md)，陷阱清单见 [常见陷阱.md](常见陷阱.md)。
+
+搜索体检：它同时校验顶层 `web_search` 取值，并在目录条目 `use_responses_lite=true` 时给 `W_RESPONSES_LITE`（托管搜索不会进顶层 `tools`）；修复用 §2 的 `--responses-lite false`。

@@ -25,7 +25,7 @@ description: >
 - 目录 `slug` 必须和 TOML 的 `model` 全等（含前缀如 `x-ai/`）。
 - `wire_api` 只有 `responses`（2026-02 起 `chat` 已移除，残留即启动失败）。
 - 自定义目录整份替换该进程内置目录：先 `--bootstrap-bundled` 导出完整目录再追加。`model_catalog_json` 必须是绝对路径的专用文件（`<profile>-models.json`），禁用 `models.json`/`models_cache.json`。
-- 工具字段语义见 [references/model-catalog-json.md](references/model-catalog-json.md)：默认去 `code_mode_only`、开 skills/plugin/apps 说明；空 `apply_patch`/`default` shell 补 `freeform`/`unified_exec`；`web_search` 缺省 `text`。第三方网关目录一律 `use_responses_lite = false`：`true` 时工具不进顶层 `tools`，托管搜索静默不下发（见该文“use_responses_lite 与工具下发”）。Grok 例外：`apply_patch` 实测全失败则该条保持 `null`，`shell_type` 仍 `unified_exec`，`web_search` 仍 `text`。
+- 工具字段语义见 [references/model-catalog-json.md](references/model-catalog-json.md)：默认去 `code_mode_only`、开 skills/plugin/apps 说明；空 `apply_patch`/`default` shell 补 `freeform`/`unified_exec`；`web_search` 缺省 `text`。第三方网关目录一律 `use_responses_lite = false`（脚本传 `--responses-lite false`）：`true` 时工具不进顶层 `tools`，托管搜索静默不下发（见该文“use_responses_lite 与工具下发”）。Grok 例外：`apply_patch` 实测全失败则该条保持 `null`，`shell_type` 仍 `unified_exec`，`web_search` 仍 `text`。
 - `support_verbosity` 仅上游官方文档化才开；不要跨供应商抄 `verbosity`。
 - 密钥只用 `env_key`，本体进 `~/.config/models.env`（`600`），不进 TOML，不回显。
 - 不要跑供应商 `curl|bash` / `irm|iex` 安装器，除非用户明确要求。
@@ -50,7 +50,7 @@ description: >
 5. 只改必要顶层键和对应 `[model_providers.<id>]`。
 6. 写入前 TOML/JSON 语法校验；失败中止。
 7. 手写第三方配置先用 `check_profile.py` 扫必改项（空 `base_url` 回退 OpenAI 等），再 `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 [model-catalog-json.md](model-catalog-json.md)），再用 `exec` 打一次真实请求确认网关不拒收（命令见 [usage.md](usage.md)）。web_search 场景按 [tool-calling.md](references/tool-calling.md) 的启用顺序逐项过：目录加载 → 工具下发 → 模式 → 网关能力 → 行为验证。
-8. 重载客户端并开新对话。`--profile` 对 `doctor` 无效；切换提供方后另一组历史仅隐藏。
+8. 重载客户端并开新对话。`--profile` 对 `doctor` 无效；切换提供方后另一组历史仅隐藏。有共享 daemon 时用 `codex app-server daemon restart`，退出 TUI 不会重启它；各宿主的分层与命令见 [usage.md](references/usage.md) 收尾一节。
 
 `--reasoning-levels` 写目录的 `supported_reasoning_levels`，当前档是 TOML 的 `model_reasoning_effort`。窗口公式见 [references/context-window-guide.md](references/context-window-guide.md)。
 
