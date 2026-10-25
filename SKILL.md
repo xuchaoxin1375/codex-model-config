@@ -6,6 +6,8 @@ description: >
 
   适用于：新增或切换 model_providers、写入目录元数据、设置 model_catalog_json，
   或让指定上下文窗口真正生效，包括模型写在 Codex profile 里、或 models.json 中缺失的情况。
+  搜索类问题同样适用：`web_search` 配了不生效、模型不调用搜索、搜索工具没有下发、
+  托管搜索与 standalone `web.run` 的取舍与排查。
   也适用于第三方模型不走 apply_patch、改用 Python 写文件、缺少改文件摘要、把 GPT/DeepSeek 的 support_verbosity 抄给 Grok、或 Grok 打开 apply_patch freeform 后反复失败、效率更差的情况。
 
   不适用于：只改 MCP、沙箱或审批策略、通用 OpenAI SDK 客户端，
@@ -27,6 +29,7 @@ description: >
 - 自定义目录整份替换该进程内置目录：先 `--bootstrap-bundled` 导出完整目录再追加。`model_catalog_json` 必须是绝对路径的专用文件（`<profile>-models.json`），禁用 `models.json`/`models_cache.json`。
 - 工具字段语义见 [references/model-catalog-json.md](references/model-catalog-json.md)：默认去 `code_mode_only`、开 skills/plugin/apps 说明；空 `apply_patch`/`default` shell 补 `freeform`/`unified_exec`；`web_search` 缺省 `text`。第三方网关目录一律 `use_responses_lite = false`（脚本传 `--responses-lite false`）：`true` 时工具不进顶层 `tools`，托管搜索静默不下发（见该文“use_responses_lite 与工具下发”）。Grok 例外：`apply_patch` 实测全失败则该条保持 `null`，`shell_type` 仍 `unified_exec`，`web_search` 仍 `text`。
 - 搜索缺失或不可用时，按 [搜索验证边界](references/tool-calling.md#搜索可用性的验证边界) 区分托管后端与当前会话入口；本地工具列表缺项不代表托管搜索不可用，`/alpha/search` 也不是托管搜索的前提。
+- 搜索/工具类问题按 [验证成本与顺序](references/tool-calling.md#验证成本与顺序) 取证：先静态与本地回显，再最小端点请求，最后才开真实会话；会话内先让模型自报工具清单（不触发搜索），真实搜索由用户决定；同一结论不重复验证。
 - `support_verbosity` 仅上游官方文档化才开；不要跨供应商抄 `verbosity`。
 - 密钥只用 `env_key`，本体进 `~/.config/models.env`（`600`），不进 TOML，不回显。
 - 不要跑供应商 `curl|bash` / `irm|iex` 安装器，除非用户明确要求。
