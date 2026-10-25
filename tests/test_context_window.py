@@ -89,6 +89,27 @@ class ContextWindowCliTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_non_interactive_without_yes_is_refused(self):
+        # Windows 下 DEVNULL 的 stdin 仍是字符设备(isatty 为 True),必须走 EOFError 兜底。
+        with tempfile.TemporaryDirectory() as directory:
+            home, _, _ = self.fixture(directory)
+            before = {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()}
+            adjust = self.run_adjust(home)
+            self.assertEqual(adjust.returncode, 2, adjust.stderr)
+            self.assertIn("refusing non-interactive", adjust.stderr)
+            init = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init_profile.py"),
+                 "--codex-home", str(home), "--model", "test-model", "--provider", "init-test",
+                 "--base-url", "https://example.invalid/v1"],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                encoding="utf-8", timeout=20,
+            )
+            self.assertEqual(init.returncode, 2, init.stderr)
+            self.assertIn("refusing non-interactive", init.stderr)
+            self.assertEqual(
+                {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()}, before,
+            )
+
     def test_bootstrap_preview_and_declined_change_write_nothing(self):
         for mode in ("--dev", "--dry-run", None):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:

@@ -460,9 +460,13 @@ def main() -> int:
         print_preview_body(rendered.rstrip("\n"))
         return 0
     if not args.yes:
+        # Windows 上 stdin 指向 DEVNULL 时 isatty() 仍可能为 True,靠 input() 抛 EOFError 兜底。
         if not sys.stdin.isatty():
             parser.error("refusing non-interactive create without --yes")
-        answer = input("Write profile? [y/N] ").strip().lower()
+        try:
+            answer = input("Write profile? [y/N] ").strip().lower()
+        except EOFError:
+            parser.error("refusing non-interactive create without --yes")
         if answer not in {"y", "yes"}:
             print("No changes applied.")
             return 0

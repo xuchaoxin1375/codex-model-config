@@ -946,9 +946,14 @@ def main() -> int:
     if args.dry_run:
         return 0
     if not args.yes and not args.dev:
+        # Windows 上 NUL 是字符设备,stdin 指向 DEVNULL 时 isatty() 仍为 True,
+        # 只靠 isatty 会漏判并在 input() 处抛 EOFError。
         if not sys.stdin.isatty():
             parser.error("refusing non-interactive change without --yes")
-        answer = input("Apply changes? [y/N] ").strip().lower()
+        try:
+            answer = input("Apply changes? [y/N] ").strip().lower()
+        except EOFError:
+            parser.error("refusing non-interactive change without --yes")
         if answer not in {"y", "yes"}:
             print("No changes applied.")
             return 0
