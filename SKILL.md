@@ -29,7 +29,7 @@ description: >
 - 自定义目录整份替换该进程内置目录：先 `--bootstrap-bundled` 导出完整目录再追加。`model_catalog_json` 必须是绝对路径的专用文件（`<profile>-models.json`），禁用 `models.json`/`models_cache.json`。
 - 工具字段语义见 [references/model-catalog-json.md](references/model-catalog-json.md)：默认去 `code_mode_only`、开 skills/plugin/apps 说明；空 `apply_patch`/`default` shell 补 `freeform`/`unified_exec`；`web_search` 缺省 `text`。第三方网关目录一律 `use_responses_lite = false`（脚本传 `--responses-lite false`）：`true` 时工具不进顶层 `tools`，托管搜索静默不下发（见该文“use_responses_lite 与工具下发”）。Grok 例外：`apply_patch` 实测全失败则该条保持 `null`，`shell_type` 仍 `unified_exec`，`web_search` 仍 `text`。
 - 搜索缺失或不可用时，按 [搜索验证边界](references/tool-calling.md#搜索可用性的验证边界) 区分托管后端与当前会话入口；本地工具列表缺项不代表托管搜索不可用，`/alpha/search` 也不是托管搜索的前提。
-- 托管 `web_search` 最短路径：顶层 `web_search = "live"` + 目录条目 `use_responses_lite = false` + `web_search_tool_type = "text"`，改完只跑一次 `debug models` 核对字段；不抓包、不发真实请求（细节见 [tool-calling.md](references/tool-calling.md#第三方网关启用与排查顺序)）。
+- 托管 `web_search` 最短路径：顶层 `web_search = "live"` + 目录全部条目的 `use_responses_lite = false` 与 `web_search_tool_type = "text"`（整份菜单一起改，不要只改当前 `model=`），改完跑一次 `debug models` 核对字段即可；不抓包、不发真实请求，深入排障见 [tool-calling.md](references/tool-calling.md#第三方网关启用与排查顺序)。
 - `support_verbosity` 仅上游官方文档化才开；不要跨供应商抄 `verbosity`。
 - 密钥只用 `env_key`，本体进 `~/.config/models.env`（`600`），不进 TOML，不回显。
 - 不要跑供应商 `curl|bash` / `irm|iex` 安装器，除非用户明确要求。
