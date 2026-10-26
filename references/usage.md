@@ -148,6 +148,14 @@ codex --profile <name> exec --skip-git-repo-check -s read-only -c approval_polic
 
 切模型验证加 `-m <slug>`。返回 `unsupported_feature` / `tool type '...' is not supported` 即按 [tool-calling.md](tool-calling.md) 排障（通常是 `apply_patch` / `web_search` 被拒收）。
 
+会话内验证搜索加 `--json`（PowerShell 同文）：
+
+```bash
+codex --profile <name> exec --json --skip-git-repo-check -s read-only -c approval_policy="never" "不使用任何 skill，直接做一次简单的一次性搜索：<可核验主题>"
+```
+
+输出是 JSONL：`item.completed` 且 `action.type=search`、带 `query` / `queries` 才算执行过搜索，`item.started` 的 `action.type=other` 不算。判定边界见 [tool-calling.md](tool-calling.md#搜索可用性的验证边界)。
+
 收尾：重载 VS Code / 桌面端并开新对话；旧会话保留启动时的目录和窗口。
 
 改完让配置生效，按宿主分层，退出 TUI 不等于重启后台服务：
@@ -159,7 +167,9 @@ codex --profile <name> exec --skip-git-repo-check -s read-only -c approval_polic
 | VSCode 扩展 | 扩展自己的 app-server 启动 | `Developer: Reload Window`，或直接关窗口 |
 | Desktop App | 应用内 app-server 启动 | 完全退出（含托盘）再启动 |
 
-判定当前有没有 daemon：`codex app-server daemon version`。报连接失败就是没有，退出 TUI 重开即可；有输出说明它还活着，只重开 TUI 仍用旧配置。残留 socket 让该命令报错时先 `daemon restart`，仍不行再按 PID 结束那一个 `codex.exe`，不要批量杀。改前改后各跑一次，看运行版本或启动时间变化即可确认换新。
+判定当前有没有 daemon：`codex app-server daemon version`。报连接失败就是没有，退出 TUI 重开即可；有输出说明它还活着，只重开 TUI 仍用旧配置。残留 socket 让该命令报错时先 `daemon restart`；仍不行再按 PID 结束那一个进程（Linux：`pgrep -fl codex` 看清后 `kill <pid>`），不要用 `pkill codex` 这类批量杀——它会连带结束正在跑的 TUI 和其他会话。改前改后各跑一次，看运行版本或启动时间变化即可确认换新。
+
+`daemon version` 同时给出 `cliVersion` 与 `appServerVersion`。两者不一致说明 daemon 仍旧二进制，只重启换不掉版本：npm/brew 安装的 CLI 升级不会自动迁移 managed app-server。`codex app-server daemon update` 会去拉 `https://chatgpt.com/codex/install.sh`，国内常超时，且可能中断正在运行的会话；`--from-cli` 能把当前 CLI 复制给 daemon（可用但锁版本）。要持续跟版，用官方独立安装后再 `app-server daemon bootstrap`；不然就接受手动管理版本。
 
 ## 4. 手写第三方配置静态检查（`check_profile.py`）
 

@@ -85,6 +85,8 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 2. 验证实时模式时显式设工具的 `external_web_access: true`；可加 `include: ["web_search_call.action.sources"]` 取得来源。记录请求的模式，避免把普通搜索或缓存结果写成已验证实时搜索。
 3. 检查响应或 SSE 最终事件：出现 `type: "web_search_call"`、`status: "completed"`，并返回查询及可核验的来源或引用，才记录为该提供方的托管搜索通过。只有 HTTP 200、助手说“我会搜索”或正文给出链接均不足以证明执行过搜索。凭据从现有环境或安全存储读取，不回显，不落入诊断产物。
 
+会话内取证看 `codex exec --json` 的 JSONL 事件，别拿第一条当证据：`item.started` 的 `web_search` 项 `query` 为空、`action.type` 为 `other`，只说明发起了；`item.completed` 且 `action.type` 为 `search`、带 `query` / `queries` 才算真正执行。模型自报的工具名（常见为 `web.run`）也不能作依据——同一能力在不同宿主显示不同名称，判定只认事件与请求体。
+
 **直接 API 验证通过不代表当前会话原生入口已恢复**。交付时分别说明后端验证结果、当前会话能否实际调用，以及是否修改配置。后端已通过且配置正确时先保留配置；客户端配置或目录确有修改时重载并开新会话，再观察原生搜索事件。未经复验，不承诺重开会话就能解决，也不把直接 API 调用写成原生入口修复成功。
 
 ### 验证成本与顺序
@@ -103,6 +105,7 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 - [ ] 是否按实际传输判断依赖，没有把 `/alpha/search` 当作托管搜索的前提？
 - [ ] 是否保留已完成的搜索调用与来源证据，并分别报告后端、实时模式和会话入口的验证范围？
 - [ ] 是否按静态 → 端点 → 会话的成本顺序取证，且没有为同一结论重复发起计费会话？
+- [ ] 会话判定是否只认 `item.completed` + `action.type=search`，没有把 `item.started` 或模型自报的工具名当证据？
 
 ## 第三方模型拒收 `web_search`（mimo-v2.5 实例）
 
