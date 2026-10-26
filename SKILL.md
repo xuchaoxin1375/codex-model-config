@@ -53,7 +53,7 @@ description: >
 4. 写目录：`adjust_context_window.py --bootstrap-bundled --from-cache`。工具/模态覆盖（`--apply-patch-type`/`--web-search-type`/`--input-modalities`/`--supports-search-tool`）、同目录多模型（`--catalog-only`）、预览（`--dev`）见 [usage.md](usage.md)，语义见 [model-catalog-json.md](model-catalog-json.md)。
 5. 只改必要顶层键和对应 `[model_providers.<id>]`。
 6. 写入前 TOML/JSON 语法校验；失败中止。
-7. 手写第三方配置先用 `check_profile.py` 扫必改项（空 `base_url` 回退 OpenAI 等），再 `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 [model-catalog-json.md](references/model-catalog-json.md)）；真实请求只在用户明确要求时发（命令见 [usage.md](references/usage.md)）。搜索配置的一屏视图用 `inspect_web_search.py`（命令见 [usage.md](references/usage.md) §5）。web_search 场景按 [tool-calling.md](references/tool-calling.md) 的启用顺序逐项过：目录加载 → 工具下发 → 模式 → 网关能力 → 行为验证。
+7. 手写第三方配置先用 `check_profile.py` 扫必改项（空 `base_url` 回退 OpenAI 等），再 `debug models` 确认 slug、窗口、档位、工具字段（字段清单见 [model-catalog-json.md](references/model-catalog-json.md)）；真实请求只在用户明确要求时发（命令见 [usage.md](references/usage.md)）。搜索配置的一屏视图用 `inspect_web_search.py`，工具面用 `inspect_tools.py`（命令见 [usage.md](references/usage.md) §5–§6）。web_search 场景按 [tool-calling.md](references/tool-calling.md) 的启用顺序逐项过：目录加载 → 工具下发 → 模式 → 网关能力 → 行为验证。
 8. 重载客户端并开新对话；共享 daemon 与各宿主的重载方式见 [usage.md](references/usage.md) 收尾一节。`--profile` 对 `doctor` 无效。
 
 `--reasoning-levels` 写目录的 `supported_reasoning_levels`，当前档是 TOML 的 `model_reasoning_effort`。窗口公式见 [references/context-window-guide.md](references/context-window-guide.md)。

@@ -15,6 +15,7 @@
 | `scripts/init_profile.py` | 从模板新建 `~/.codex/<provider>.config.toml`（含提供方调优参数） |
 | `scripts/adjust_context_window.py` | 改窗口、目录条目、`model_catalog_json`（含工具/模态覆盖） |
 | `scripts/inspect_web_search.py` | 一屏看搜索配置层：生效值、目录字段、profile 覆盖、与内置目录差异 |
+| `scripts/inspect_tools.py` | 一屏看工具面：托管搜索、tool_search、apply_patch、shell、MCP 与嵌套状态 |
 | `scripts/model_meta.py` | 共享枚举与解析：`responses`、`low..max`、`text,image,audio` |
 | `scripts/shell_hints.py` | 按 OS 打印后续命令 |
 | `references/template.config.toml` | profile 模板 |

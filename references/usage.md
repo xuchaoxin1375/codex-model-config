@@ -202,3 +202,29 @@ python scripts\inspect_web_search.py -a -b
 - `profiles`：各 profile 的顶层覆盖，`<inherit>` 表示继承 base；`-b` 会调本机 `codex debug models --bundled` 做字段差异，用来证明自定义目录真的被加载。
 
 退出码：0 无阻断项，1 有阻断项，2 用法或文件错误。它只判配置层；网关是否透传、会话里是否真调用，按 [tool-calling.md](tool-calling.md#搜索可用性的验证边界) 另做。
+
+## 6. 工具面一屏视图（`inspect_tools.py`）
+
+回答"当前配置下模型手上有哪些工具"。只读、离线，来源是目录条目 + `config.toml`：
+
+```bash
+python3 scripts/inspect_tools.py
+python3 scripts/inspect_tools.py -p mimo
+python3 scripts/inspect_tools.py --json
+```
+
+```powershell
+python scripts\inspect_tools.py -p mimo
+```
+
+每行一个工具面，标记含义：
+
+| 标记 | 含义 |
+|---|---|
+| `[send]` | 配置上会进请求：托管 `web_search`、`tool_search`（延迟发现）、`apply_patch`、`shell`、`experimental_supported_tools` |
+| `[off ]` | 已关闭（`web_search=disabled`、`shell_type=disabled`、`apply_patch_tool_type=null` 等） |
+| `[!!  ]` | 被 `use_responses_lite=true` 或非法 `web_search_tool_type` 挡住 |
+| `[nest]` | 被 `tool_mode=code_mode_only` 收进嵌套工具，仍可达但不是顶层工具 |
+| `[?   ]` | 目录缺失、slug 对不上或字段缺失，先修目录再判断 |
+
+另外列出 `[mcp_servers]` 与 skills/plugin/apps 说明开关。Codex 没有"列出当前会话全部可用工具"的命令：`debug models` 只给目录字段、`debug prompt-input` 只给消息、`mcp list` 只给 server。请求体里到底有什么，按 [tool-calling.md](tool-calling.md#搜索可用性的验证边界) 取证。
