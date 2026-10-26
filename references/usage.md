@@ -178,3 +178,27 @@ python scripts\check_profile.py --file $env:USERPROFILE\.codex\<id>.config.toml 
 退出码：0 无 ERROR（警告放行），1 有 ERROR（`--strict` 下警告也算），2 用法/文件错误；`--json` 出机器可读。字段语义与判定依据见 [model-catalog-json.md](model-catalog-json.md)，陷阱清单见 [常见陷阱.md](常见陷阱.md)。
 
 搜索体检：它同时校验顶层 `web_search` 取值，并在目录条目 `use_responses_lite=true` 时给 `W_RESPONSES_LITE`（托管搜索不会进顶层 `tools`）；修复用 §2 的 `--responses-lite false`。
+
+## 5. 搜索配置一屏视图（`inspect_web_search.py`）
+
+目录 JSON 太长、不想翻文件时用它。只读、离线：不发请求、不抓包、不改文件。
+
+```bash
+python3 scripts/inspect_web_search.py                 # 默认 ~/.codex/config.toml
+python3 scripts/inspect_web_search.py -p mimo         # 叠加 profile 层（等价 codex -p 的 layer 语义）
+python3 scripts/inspect_web_search.py -a -b           # 所有 profile 覆盖 + 与内置目录比字段
+python3 scripts/inspect_web_search.py --json          # 机器可读
+```
+
+```powershell
+python scripts\inspect_web_search.py -a -b
+```
+
+输出分四块：
+
+- 生效层：model、provider、base_url、`web_search`、目录路径与条目数。
+- `checks`：搜索三处是否成立（`[ok]` / `[! ]` / `[!!]`），阻断项以 `E_` 开头。
+- `catalog search fields`：每条只留 `use_responses_lite` 与 `web_search_tool_type`，`*` 标当前模型。
+- `profiles`：各 profile 的顶层覆盖，`<inherit>` 表示继承 base；`-b` 会调本机 `codex debug models --bundled` 做字段差异，用来证明自定义目录真的被加载。
+
+退出码：0 无阻断项，1 有阻断项，2 用法或文件错误。它只判配置层；网关是否透传、会话里是否真调用，按 [tool-calling.md](tool-calling.md#搜索可用性的验证边界) 另做。

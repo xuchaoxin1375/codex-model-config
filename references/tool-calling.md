@@ -67,7 +67,7 @@ Responses 请求里的 `type: web_search` 工具，由提供方后端执行搜�
 
 可选：`[tools.web_search]` 的 `context_size`、`allowed_domains`。`supports_search_tool` 管的是延迟工具发现，与托管搜索无关，不要为搜索去动它。
 
-体检入口：先跑 `check_profile.py`（见 [usage.md](usage.md) §4），它会校验顶层 `web_search` 取值；目录条目 `use_responses_lite=true` 时给 `W_RESPONSES_LITE`，`false` 时打印 `I_WEB_SEARCH_SUMMARY`。静态检查通过后再按上面的顺序做真实请求。
+体检入口：先跑 `check_profile.py`（见 [usage.md](usage.md) §4），它会校验顶层 `web_search` 取值；目录条目 `use_responses_lite=true` 时给 `W_RESPONSES_LITE`，`false` 时打印 `I_WEB_SEARCH_SUMMARY`。要一屏看生效值、目录字段与 profile 覆盖，用 `inspect_web_search.py`（见 [usage.md](usage.md) §5）。两者都只覆盖配置层，通过后再按上面的顺序做真实请求。
 
 ## 排障
 
