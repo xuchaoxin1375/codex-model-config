@@ -3,12 +3,10 @@ name: codex-model-config
 description: >
   为 Codex 端到端配置自定义或第三方模型：提供方端点、API Key 环境变量、
   models.json 目录、上下文窗口，以及哪份 profile TOML 持有 model=model-name。
-
-  适用于：新增或切换 model_providers、写入目录元数据、设置 model_catalog_json，
-  或让指定上下文窗口真正生效，包括模型写在 Codex profile 里、或 models.json 中缺失的情况。
-  搜索类问题同样适用：`web_search` 配了不生效、模型不调用搜索、搜索工具没有下发、
-  托管搜索与 standalone `web.run` 的取舍与排查。
-  也适用于第三方模型不走 apply_patch、改用 Python 写文件、缺少改文件摘要、把 GPT/DeepSeek 的 support_verbosity 抄给 Grok、或 Grok 打开 apply_patch freeform 后反复失败、效率更差的情况。
+  适用于新增或切换 model_providers、写入目录元数据、设置 model_catalog_json、
+  让指定上下文窗口生效，以及排查 web_search 不生效、搜索工具不下发、模型不调用搜索。
+  也用于第三方模型的工具调用与编辑行为异常：不走 apply_patch、缺少改文件摘要、
+  跨供应商照抄 verbosity、打开 freeform 后反复失败；具体症状与陷阱见正文。
 
   不适用于：只改 MCP、沙箱或审批策略、通用 OpenAI SDK 客户端，
   以及不涉及提供方、目录或配置文件的纯推理强度调整。
