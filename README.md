@@ -40,7 +40,7 @@ unix shell:
 ```bash
 mkdir -pv ~/.agents/skills/
 skill_repo='https://github.com/xuchaoxin1375/codex-model-config.git'
-# 国内用户可改用加速镜像（二选一，去掉行首 #）
+# 国内用户可改用加速镜像（二选一，去掉行首 #）；镜像仅用于只读安装与更新，推送请用代理或 SSH 443（见 network-access）
 # skill_repo="https://ghproxy.net/https://github.com/xuchaoxin1375/codex-model-config.git"
 # skill_repo="https://gh-proxy.com/https://github.com/xuchaoxin1375/codex-model-config.git"
 # 已克隆则更新，否则拉取（可重复执行）
@@ -55,7 +55,7 @@ powershell(pwsh):
 ```powershell
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills" | Out-Null
 $skillRepo = 'https://github.com/xuchaoxin1375/codex-model-config.git'
-# 国内用户可改用加速镜像（二选一，去掉行首 #）
+# 国内用户可改用加速镜像（二选一，去掉行首 #）；镜像仅用于只读安装与更新，推送请用代理或 SSH 443（见 network-access）
 # $skillRepo = "https://ghproxy.net/https://github.com/xuchaoxin1375/codex-model-config.git"
 # $skillRepo = "https://gh-proxy.com/https://github.com/xuchaoxin1375/codex-model-config.git"
 $skillDir = "$env:USERPROFILE\.agents\skills\codex-model-config"
